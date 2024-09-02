@@ -17,19 +17,72 @@ limitations under the License.
 package v1beta1
 
 import (
+	"github.com/advok8s/advok8s-secrets-manager/internal/selectors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+// SourceSecret is a reference to a secret to copy from.
+type SourceSecret struct {
+	// Name of the secret to copy from.
+	Name string `json:"name"`
+
+	// Namespace of the secret to copy from.
+	Namespace string `json:"namespace"`
+}
+
+// TargetSecret is a reference to a secret to copy to.
+type TargetSecret struct {
+	// Name of the secret to copy to.
+	Name string `json:"name"`
+
+	// Labels to apply to the secret.
+	Labels map[string]string `json:"labels,omitempty"`
+}
+
+// CopyAuthorization specifies credentials authorising copying of a secret.
+type CopyAuthorization struct {
+	// Shared secret used to authenticate.
+	SharedSecret string `json:"sharedSecret"`
+}
+
+// Reclaim policy for copied secret.
+// +kubebuilder:validation:Enum=Delete;Retain
+type ReclaimPolicy string
+
+const (
+	ReclaimDelete ReclaimPolicy = "Delete"
+	ReclaimRetain ReclaimPolicy = "Retain"
+)
+
+// SecretCopierRule is a rule for copying a secret.
+type SecretCopierRule struct {
+	// Reference to the secret to copy to.
+	SourceSecret SourceSecret `json:"sourceSecret"`
+
+	// Target namespaces to copy to.
+	TargetNamespaces selectors.TargetNamespaces `json:"targetNamespaces,omitempty"`
+
+	// Target secret to copy to.
+	TargetSecret TargetSecret `json:"targetSecret,omitempty"`
+
+	// Authorization to use for copying.
+	CopyAuthorization CopyAuthorization `json:"copyAuthorization,omitempty"`
+
+	// Reclaim policy for copied secret.
+	// +kubebuilder:default=Delete
+	ReclaimPolicy ReclaimPolicy `json:"reclaimPolicy,omitempty"`
+}
+
 // SecretCopierSpec defines the desired state of SecretCopier
 type SecretCopierSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of SecretCopier. Edit secretcopier_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// A list of rules for copying secrets.
+	Rules []SecretCopierRule `json:"rules,omitempty"`
 }
 
 // SecretCopierStatus defines the observed state of SecretCopier
@@ -40,6 +93,7 @@ type SecretCopierStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Cluster
 
 // SecretCopier is the Schema for the secretcopiers API
 type SecretCopier struct {
