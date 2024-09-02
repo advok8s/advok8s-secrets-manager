@@ -222,7 +222,7 @@ func TestTargetNamespaces_Matches(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.selector.Matches(tt.namespace); got != tt.want {
+			if got := tt.selector.Matches(&tt.namespace); got != tt.want {
 				t.Errorf("TargetNamespaces.Matches() = %v, want %v", got, tt.want)
 			}
 		})

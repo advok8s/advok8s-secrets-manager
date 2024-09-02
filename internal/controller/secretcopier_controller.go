@@ -23,7 +23,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
 )
@@ -100,9 +102,9 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	activeNamespaces := make([]corev1.Namespace, 0)
 
-	for _, ns := range namespaces.Items {
-		if ns.Status.Phase != corev1.NamespaceTerminating {
-			activeNamespaces = append(activeNamespaces, ns)
+	for _, namespace := range namespaces.Items {
+		if namespace.Status.Phase != corev1.NamespaceTerminating {
+			activeNamespaces = append(activeNamespaces, namespace)
 		}
 	}
 
@@ -111,8 +113,8 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	activeNamespaceNames := make([]string, 0)
 
-	for _, ns := range activeNamespaces {
-		activeNamespaceNames = append(activeNamespaceNames, ns.Name)
+	for _, namespace := range activeNamespaces {
+		activeNamespaceNames = append(activeNamespaceNames, namespace.Name)
 	}
 
 	log.V(1).Info("Active namespaces", "namespaces", activeNamespaceNames)
@@ -120,10 +122,10 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Iterate over the set of active namespaces and work out which rules match
 	// it as as the target namespace for copying secrets to.
 
-	for _, ns := range activeNamespaces {
+	for _, namespace := range activeNamespaces {
 		for _, rule := range secretCopier.Spec.Rules {
-			if rule.TargetNamespaces.Matches(ns) {
-				log.V(1).Info("Matched rule for SecretCopier", "name", req.NamespacedName, "rule", rule, "namespace", ns.Name)
+			if rule.TargetNamespaces.Matches(&namespace) {
+				log.V(1).Info("Matched target Namespace against SecretCopier", "name", req.NamespacedName, "rule", rule, "namespace", namespace.Name)
 			}
 		}
 	}
@@ -135,5 +137,106 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 func (r *SecretCopierReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&secretsv1beta1.SecretCopier{}).
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.findSecretCopiersMatchingSourceSecret),
+		).
+		Watches(
+			&corev1.Namespace{},
+			handler.EnqueueRequestsFromMapFunc(r.findSecretCopiersMatchingTargetNamespace),
+		).
 		Complete(r)
+}
+
+// Handler function to find SecretCopier objects that match a source secret.
+// This is used to trigger a reconciliation of the SecretCopier object when a
+// secret is created or updated. This is necessary as we need to determine if
+// the secret is one that the SecretCopier is interested in and copy it to any
+// target namespaces if it is.
+func (r *SecretCopierReconciler) findSecretCopiersMatchingSourceSecret(ctx context.Context, secret client.Object) []reconcile.Request {
+	log := log.FromContext(ctx)
+
+	// Fetch the list of SecretCopier objects.
+
+	var secretCopiers secretsv1beta1.SecretCopierList
+
+	err := r.List(ctx, &secretCopiers, &client.ListOptions{})
+
+	if err != nil {
+		log.Error(err, "Unable to list SecretCopier objects")
+		return nil
+	}
+
+	// Iterate over the list of SecretCopier objects and determine if any match
+	// on it as the source secret.
+
+	var requests []reconcile.Request
+
+	for _, secretCopier := range secretCopiers.Items {
+		for _, rule := range secretCopier.Spec.Rules {
+			if rule.SourceSecret.Name == secret.GetName() && rule.SourceSecret.Namespace == secret.GetNamespace() {
+				log.V(1).Info("Queue reconcile for source Secret against SecretCopier", "name", secretCopier.Name, "rule", rule, "secret", secret.GetName(), "namespace", secret.GetNamespace())
+
+				requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&secretCopier)})
+
+				// We only need to match on one rule for the secret, so break out
+				// of the loop once we have found one.
+
+				break
+			}
+		}
+	}
+
+	return requests
+}
+
+// Handler function to find SecretCopier objects that match a target namespace.
+// This is used to trigger a reconciliation of the SecretCopier object when a
+// namespace is created. This is necessary as we need to determine if the
+// namespace is one that the SecretCopier is interested in and copy secrets to
+// it if it is.
+func (r *SecretCopierReconciler) findSecretCopiersMatchingTargetNamespace(ctx context.Context, object client.Object) []reconcile.Request {
+	log := log.FromContext(ctx)
+
+	// Convert the object to a Namespace object.
+
+	namespace, ok := object.(*corev1.Namespace)
+
+	if !ok {
+		log.Error(nil, "Object is not a Namespace", "object", object)
+		return nil
+	}
+
+	// Fetch the list of SecretCopier objects.
+
+	var secretCopiers secretsv1beta1.SecretCopierList
+
+	err := r.List(ctx, &secretCopiers, &client.ListOptions{})
+
+	if err != nil {
+		log.Error(err, "Unable to list SecretCopier objects")
+		return nil
+	}
+
+	// Iterate over the list of SecretCopier objects and determine if any match
+	// on it as the target namespace.
+
+	var requests []reconcile.Request
+
+	for _, secretCopier := range secretCopiers.Items {
+		for _, rule := range secretCopier.Spec.Rules {
+			if rule.TargetNamespaces.Matches(namespace) {
+				log.V(1).Info("Queue reconcile for target Namespace against SecretCopier", "name", secretCopier.Name, "rule", rule, "namespace", namespace.GetName())
+
+				requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&secretCopier)})
+
+				// We only need to match on one rule for the namespace, so break
+				// out of the loop once we have found one.
+
+				break
+			}
+		}
+	}
+
+	return requests
 }

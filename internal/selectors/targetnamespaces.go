@@ -38,7 +38,7 @@ type TargetNamespaces struct {
 
 // Matches against a namespace. As soon as one of the matchers fails we
 // give up and return false.
-func (s TargetNamespaces) Matches(namespace corev1.Namespace) bool {
+func (s TargetNamespaces) Matches(namespace *corev1.Namespace) bool {
 	// If there is no name selector, then match on all but Kubernetes
 	// system namespaces. Otherwise match on name selector.
 
