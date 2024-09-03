@@ -42,12 +42,6 @@ type TargetSecret struct {
 	Labels map[string]string `json:"labels,omitempty"`
 }
 
-// CopyAuthorization specifies credentials authorising copying of a secret.
-type CopyAuthorization struct {
-	// Shared secret used to authenticate.
-	SharedSecret string `json:"sharedSecret"`
-}
-
 // Reclaim policy for copied secret.
 // +kubebuilder:validation:Enum=Delete;Retain
 type ReclaimPolicy string
@@ -67,9 +61,6 @@ type SecretCopierRule struct {
 
 	// Target secret to copy to.
 	TargetSecret TargetSecret `json:"targetSecret,omitempty"`
-
-	// Authorization to use for copying.
-	CopyAuthorization CopyAuthorization `json:"copyAuthorization,omitempty"`
 
 	// Reclaim policy for copied secret.
 	// +kubebuilder:default=Delete
