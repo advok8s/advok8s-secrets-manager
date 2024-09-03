@@ -74,6 +74,10 @@ type SecretCopierSpec struct {
 
 	// A list of rules for copying secrets.
 	Rules []SecretCopierRule `json:"rules,omitempty"`
+
+	// The interval at which to run the controller.
+	// +kubebuilder:default="1m"
+	SyncPeriod metav1.Duration `json:"syncPeriod,omitempty"`
 }
 
 // SecretCopierStatus defines the observed state of SecretCopier

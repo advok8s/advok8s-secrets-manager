@@ -18,67 +18,154 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	"github.com/advok8s/advok8s-secrets-manager/internal/selectors"
 )
 
 var _ = Describe("SecretCopier Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
+	ctx := context.Background()
 
-		ctx := context.Background()
+	BeforeEach(func() {
+		// Setup steps that needs to be executed before each test.
+	})
 
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
-		}
-		secretcopier := &secretsv1beta1.SecretCopier{}
+	AfterEach(func() {
+		// Teardown steps that needs to be executed after each test.
+	})
 
-		BeforeEach(func() {
-			By("creating the custom resource for the Kind SecretCopier")
-			err := k8sClient.Get(ctx, typeNamespacedName, secretcopier)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &secretsv1beta1.SecretCopier{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
+	Context("Copy secret to target namespace", func() {
+		It("should copy secret to target namespace", func() {
+			sourceNamespaceName := "source-namespace-1"
+			sourceSecretName := "source-secret-1"
+			targetNamespaceName := "target-namespace-1"
+			targetSecretName := "target-secret-1"
+
+			// Create source namespace.
+
+			sourceNamespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: sourceNamespaceName,
+				},
+			}
+			Expect(k8sClient.Create(ctx, sourceNamespace)).To(Succeed())
+
+			// Verify that the source namespace was created.
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, client.ObjectKey{
+					Name: sourceNamespaceName,
+				}, sourceNamespace)
+				return err == nil
+			}).Should(BeTrue())
+
+			// Create target namespace.
+
+			targetNamespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: targetNamespaceName,
+				},
+			}
+			Expect(k8sClient.Create(ctx, targetNamespace)).To(Succeed())
+
+			// Verify that the target namespace was created.
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, client.ObjectKey{
+					Name: targetNamespaceName,
+				}, targetNamespace)
+				return err == nil
+			}).Should(BeTrue())
+
+			// Create the custom resource for the Kind SecretCopier.
+
+			secretCopier := &secretsv1beta1.SecretCopier{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "secret-copier-1",
+				},
+				Spec: secretsv1beta1.SecretCopierSpec{
+					Rules: []secretsv1beta1.SecretCopierRule{
+						{
+							SourceSecret: secretsv1beta1.SourceSecret{
+								Namespace: sourceNamespaceName,
+								Name:      sourceSecretName,
+							},
+							TargetNamespaces: selectors.TargetNamespaces{
+								NameSelector: selectors.NameSelector{
+									MatchNames: []string{targetNamespaceName},
+								},
+								OwnerSelector: selectors.OwnerSelector{
+									MatchOwners: []selectors.OwnerReference{},
+								},
+								UIDSelector: selectors.UIDSelector{
+									MatchUids: []string{},
+								},
+								LabelSelector: selectors.LabelSelector{
+									MatchLabels: map[string]string{},
+								},
+							},
+							TargetSecret: secretsv1beta1.TargetSecret{
+								Name: targetSecretName,
+							},
+							ReclaimPolicy: secretsv1beta1.ReclaimDelete,
+						},
 					},
-					// TODO(user): Specify other spec details if needed.
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+				},
 			}
-		})
+			Expect(k8sClient.Create(ctx, secretCopier)).To(Succeed())
 
-		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &secretsv1beta1.SecretCopier{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
+			// Verify that the secret copier was created.
 
-			By("Cleanup the specific resource instance SecretCopier")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &SecretCopierReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, client.ObjectKey{
+					Namespace: secretCopier.Namespace,
+					Name:      secretCopier.Name,
+				}, secretCopier)
+				return err == nil
+			}).Should(BeTrue())
+
+			// Create source secret in source namespace.
+
+			sourceSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      sourceSecretName,
+					Namespace: sourceNamespaceName,
+				},
+				Type: corev1.SecretTypeOpaque,
+				StringData: map[string]string{
+					"key1": "value1",
+				},
 			}
+			Expect(k8sClient.Create(ctx, sourceSecret)).To(Succeed())
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+			// Verify that the source secret was created.
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, client.ObjectKey{
+					Namespace: sourceNamespaceName,
+					Name:      sourceSecretName,
+				}, sourceSecret)
+				return err == nil
+			}).Should(BeTrue())
+
+			// Wait for the target secret to be created in the target namespace.
+
+			Eventually(func() bool {
+				targetSecret := &corev1.Secret{}
+				err := k8sClient.Get(ctx, client.ObjectKey{
+					Namespace: targetNamespaceName,
+					Name:      targetSecretName,
+				}, targetSecret)
+				return err == nil
+			}, 5*time.Second).Should(BeTrue())
 		})
 	})
 })

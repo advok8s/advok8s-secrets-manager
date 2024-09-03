@@ -19,7 +19,6 @@ package controller
 import (
 	"bytes"
 	"context"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -159,13 +158,19 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	// Requeue the request after a short delay to ensure that target secrets are
-	// recreated if the target secret is deleted. This is necessary as we don't
-	// implement a specific way to watch for the deletion of a secret in a
-	// target namespace and recreate it if it is deleted because of concerns of
-	// spamming the REST API server if this is done too quickly.
+	// Requeue the request based on the synchronizaion period defined for the
+	// SecretCopier. This is to ensure that we periodically check for case where
+	// the target secret has been deleted and we need to recreate it. We do this
+	// on an interval rather than detecting the deletion of the target secret
+	// and recreating it immediately to avoid thrashing the system.
 
-	return ctrl.Result{RequeueAfter: time.Minute / 2}, nil
+	if secretCopier.Spec.SyncPeriod.Duration > 0 {
+		return ctrl.Result{RequeueAfter: secretCopier.Spec.SyncPeriod.Duration}, nil
+	}
+
+	// No need to requeue the request.
+
+	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -306,7 +311,7 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 
 	var secret corev1.Secret
 
-	err := r.Get(ctx, client.ObjectKey{Namespace: sourceSecret.Namespace, Name: targetSecretName}, &secret)
+	err := r.Get(ctx, client.ObjectKey{Namespace: sourceSecret.Namespace, Name: sourceSecret.Name}, &secret)
 
 	if err != nil {
 		if client.IgnoreNotFound(err) == nil {
