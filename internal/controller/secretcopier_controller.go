@@ -333,18 +333,18 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 
 	var targetSecret corev1.Secret
 
-	err = r.Get(ctx, client.ObjectKey{Namespace: targetNamespace, Name: sourceSecret.Name}, &targetSecret)
+	err = r.Get(ctx, client.ObjectKey{Namespace: targetNamespace, Name: targetSecretName}, &targetSecret)
 
 	if err != nil {
 		if client.IgnoreNotFound(err) != nil {
 			// Error reading the target secret. Log the error and return.
 
-			log.Error(err, "Unable to fetch target secret", "sourceSecret", sourceSecret, "targetNamespace", targetNamespace)
+			log.Error(err, "Unable to fetch target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
 			return
 		}
 	}
 
-	log.V(1).Info("Fetched target secret", "sourceSecret", sourceSecret, "targetNamespace", targetNamespace)
+	log.V(1).Info("Fetched target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
 
 	// If the target secret does not exist, create it.
 
@@ -359,7 +359,7 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 		// to the target secret so that it will be automatically deleted when
 		// the SecretCopier object is deleted.
 
-		log.V(1).Info("Creating target secret", "sourceSecret", sourceSecret, "targetNamespace", targetNamespace)
+		log.V(1).Info("Creating target secret", "targetSecret", targetSecret, "targetNamespace", targetNamespace)
 
 		targetSecretLabels := make(map[string]string)
 
@@ -404,11 +404,11 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 		err = r.Create(ctx, &targetSecret)
 
 		if err != nil {
-			log.Error(err, "Unable to create target secret", "sourceSecret", sourceSecret, "targetNamespace", targetNamespace)
+			log.Error(err, "Unable to create target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
 			return
 		}
 
-		log.V(1).Info("Created target secret", "sourceSecret", sourceSecret, "targetNamespace", targetNamespace)
+		log.V(1).Info("Created target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
 
 		return
 	}
@@ -418,28 +418,41 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 	// update it.
 
 	if !r.targetSecretManagedBySecretCopier(secretCopier, rule, &targetSecret) {
-		log.V(1).Info("Skipping update of target secret as not managed by SecretCopier", "sourceSecret", sourceSecret, "targetNamespace", targetNamespace)
+		log.V(1).Info("Skipping update of target secret as not managed by SecretCopier", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
 		return
 	}
 
-	// If the target secret exists, check if it is different to the source secret
-	// and if it is, update it.
+	// If the target secret exists, check if it is different to the source
+	// secret and if it is, update it. Labels need to be a copy of those from
+	// the source secret, overlaid with any additional labels specified in the
+	// rule for the target secret.
 
-	if r.sourceSecretHasBeenUpdated(&secret, &targetSecret) {
-		log.V(1).Info("Updating target secret", "sourceSecret", sourceSecret, "targetNamespace", targetNamespace)
+	if r.sourceSecretHasBeenUpdated(rule, &secret, &targetSecret) {
+		log.V(1).Info("Updating target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
+
+		targetSecretLabels := make(map[string]string)
+
+		for key, value := range secret.Labels {
+			targetSecretLabels[key] = value
+		}
+
+		for key, value := range rule.TargetSecret.Labels {
+			targetSecretLabels[key] = value
+		}
+
+		targetSecret.ObjectMeta.Labels = targetSecretLabels
 
 		targetSecret.Data = secret.Data
-		targetSecret.StringData = secret.StringData
 		targetSecret.Type = secret.Type
 
 		err = r.Update(ctx, &targetSecret)
 
 		if err != nil {
-			log.Error(err, "Unable to update target secret", "sourceSecret", sourceSecret, "targetNamespace", targetNamespace)
+			log.Error(err, "Unable to update target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
 			return
 		}
 
-		log.V(1).Info("Updated target secret", "sourceSecret", sourceSecret, "targetNamespace", targetNamespace)
+		log.V(1).Info("Updated target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
 	}
 }
 
@@ -460,7 +473,7 @@ func (r *SecretCopierReconciler) targetSecretManagedBySecretCopier(secretCopier 
 
 // Determine if the source secret has been updated by comparing the type, data
 // and labels of the source and target secrets.
-func (r *SecretCopierReconciler) sourceSecretHasBeenUpdated(sourceSecret, targetSecret *corev1.Secret) bool {
+func (r *SecretCopierReconciler) sourceSecretHasBeenUpdated(rule *secretsv1beta1.SecretCopierRule, sourceSecret, targetSecret *corev1.Secret) bool {
 	if sourceSecret.Type != targetSecret.Type {
 		return true
 	}
@@ -487,6 +500,16 @@ func (r *SecretCopierReconciler) sourceSecretHasBeenUpdated(sourceSecret, target
 		return true
 	}
 
+	targetSecretLabels := make(map[string]string)
+
+	for key, value := range sourceSecret.Labels {
+		targetSecretLabels[key] = value
+	}
+
+	for key, value := range rule.TargetSecret.Labels {
+		targetSecretLabels[key] = value
+	}
+
 	mapStringStringEqual := func(a map[string]string, b map[string]string) bool {
 		if a == nil && b == nil {
 			return true
@@ -505,7 +528,7 @@ func (r *SecretCopierReconciler) sourceSecretHasBeenUpdated(sourceSecret, target
 		return true
 	}
 
-	if !mapStringStringEqual(sourceSecret.Labels, targetSecret.Labels) {
+	if !mapStringStringEqual(sourceSecret.Labels, targetSecretLabels) {
 		return true
 	}
 
