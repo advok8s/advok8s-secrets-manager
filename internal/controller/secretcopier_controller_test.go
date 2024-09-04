@@ -28,7 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
-	"github.com/advok8s/advok8s-secrets-manager/internal/selectors"
+	"github.com/advok8s/advok8s-secrets-manager/pkg/selectors"
 )
 
 var _ = Describe("SecretCopier Controller", func() {

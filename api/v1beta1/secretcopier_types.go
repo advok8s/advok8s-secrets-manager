@@ -17,7 +17,7 @@ limitations under the License.
 package v1beta1
 
 import (
-	"github.com/advok8s/advok8s-secrets-manager/internal/selectors"
+	"github.com/advok8s/advok8s-secrets-manager/pkg/selectors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
