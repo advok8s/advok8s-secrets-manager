@@ -172,7 +172,7 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// on an interval rather than detecting the deletion of the target secret
 	// and recreating it immediately to avoid thrashing the system.
 
-	if secretCopier.Spec.SyncPeriod.Duration > 0 {
+	if secretCopier.Spec.SyncPeriod != nil && secretCopier.Spec.SyncPeriod.Duration > 0 {
 		return ctrl.Result{RequeueAfter: secretCopier.Spec.SyncPeriod.Duration}, nil
 	}
 
