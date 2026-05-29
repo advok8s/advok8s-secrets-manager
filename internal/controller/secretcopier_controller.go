@@ -28,9 +28,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
@@ -267,7 +269,9 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 // SetupWithManager sets up the controller with the Manager.
 func (r *SecretCopierReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&secretsv1beta1.SecretCopier{}).
+		// Only reconcile on spec changes (generation bumps), not on our own
+		// status writes, which would otherwise trigger a redundant reconcile.
+		For(&secretsv1beta1.SecretCopier{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.findSecretCopiersMatchingSourceSecret),
