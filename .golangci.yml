@@ -45,6 +45,12 @@ linters:
           - dupl
           - lll
         path: internal/*
+      # Test helpers are intentionally more general than their current callers
+      # (built for the test scenarios still to be added), so unparam's
+      # "param always receives X" / "result never used" reports are expected.
+      - linters:
+          - unparam
+        path: _test.go
     paths:
       - third_party$
       - builtin$
