@@ -32,7 +32,10 @@ package controller
 //   secretcopier_status_test.go          - observed state written to .status
 //                                          (observedGeneration, conditions,
 //                                          summary / per-rule counts)
-//   secretcopier_reconcile_logic_test.go - pure-function unit tests
+//
+// The pure-function copy decisions (whether a target has drifted, whether a
+// target is managed by a rule) live with the shared copy engine and are unit
+// tested there: internal/copyengine/engine_test.go.
 //
 // New behaviour areas should each get their own secretcopier_<behaviour>_test.go
 // file and reuse the builders below.

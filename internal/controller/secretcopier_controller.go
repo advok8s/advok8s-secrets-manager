@@ -17,10 +17,8 @@ limitations under the License.
 package controller
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"maps"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -36,25 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
-)
-
-// copyOutcome is the result of attempting to copy a source secret into a single
-// target namespace.
-type copyOutcome int
-
-const (
-	// copyInSync means the target secret was created, updated, or already up to
-	// date.
-	copyInSync copyOutcome = iota
-	// copyConflict means a secret with the target name already exists but is
-	// owned by something else (a different SecretCopier, a different source, or
-	// not created by this operator) and so was left untouched.
-	copyConflict
-	// copyFailed means an API error occurred creating or updating the target.
-	copyFailed
-	// copySkipped means there was nothing to do (e.g. the target namespace is
-	// the source namespace).
-	copySkipped
+	"github.com/advok8s/advok8s-secrets-manager/internal/copyengine"
 )
 
 // SecretCopierReconciler reconciles a SecretCopier object
@@ -62,13 +42,6 @@ type SecretCopierReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
-
-// Annotation keys stamped on copied secrets so the controller can recognise the
-// secrets it manages and which source secret they were copied from.
-const (
-	annotationSecretCopier = "secrets.advok8s.io/secret-copier"
-	annotationSecretName   = "secrets.advok8s.io/secret-name"
-)
 
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretcopiers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretcopiers/status,verbs=get;update;patch
@@ -134,13 +107,7 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	activeNamespaces := make([]corev1.Namespace, 0)
-
-	for _, namespace := range namespaces.Items {
-		if namespace.Status.Phase != corev1.NamespaceTerminating {
-			activeNamespaces = append(activeNamespaces, namespace)
-		}
-	}
+	activeNamespaces := copyengine.FilterActiveNamespaces(namespaces.Items)
 
 	// Generate a list of just the names of the active namespaces so we can log
 	// them for debugging.
@@ -206,13 +173,15 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			ruleStatus.TargetNamespaces++
 
 			switch r.copySecretToNamespace(ctx, &secretCopier, &rule, &source, namespace.Name) {
-			case copyInSync:
+			case copyengine.InSync:
 				ruleStatus.SecretsInSync++
-			case copyConflict:
+			case copyengine.Conflict:
 				ruleStatus.Conflicts++
-			case copyFailed:
+			case copyengine.Failed:
 				ruleStatus.Failures++
-			case copySkipped:
+			case copyengine.Skipped, copyengine.AwaitingAuthorization:
+				// SecretCopier does not gate copies on authorization, so it never
+				// produces AwaitingAuthorization. Skipped copies are not counted.
 			}
 		}
 
@@ -402,24 +371,14 @@ func (r *SecretCopierReconciler) findSecretCopiersMatchingTargetNamespace(ctx co
 	return requests
 }
 
-// Copy the source secret to the target namespace. The source secret has already
-// been fetched by the caller and is passed in as secret. The copy operation will
-// create the target secret if it does not exist, or update it if it does and the
-// source secret has changed. Also check again that we are not trying to copy the
-// secret to the same namespace it is in. The return value reports what happened
-// so the caller can summarise the outcome in the SecretCopier status.
-func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secretCopier *secretsv1beta1.SecretCopier, rule *secretsv1beta1.SecretCopierRule, secret *corev1.Secret, targetNamespace string) copyOutcome {
-	log := logf.FromContext(ctx)
-
-	// Check that we are not trying to copy the secret to the same namespace it
-	// is in.
-
+// copySecretToNamespace translates a SecretCopier rule and its already-fetched
+// source secret into a copy request for the shared copy engine, then runs it.
+// The controller owns the SecretCopier-specific decisions — the target name
+// (defaulting to the source name), the tracking identity stamped on copies, and
+// the owner reference derived from the reclaim policy — while the engine
+// performs the create/update/skip and reports the outcome.
+func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secretCopier *secretsv1beta1.SecretCopier, rule *secretsv1beta1.SecretCopierRule, secret *corev1.Secret, targetNamespace string) copyengine.Outcome {
 	sourceSecret := rule.SourceSecret
-
-	if sourceSecret.Namespace == targetNamespace {
-		log.V(1).Info("Skipping copy of secret to same namespace", "sourceSecret", sourceSecret, "targetNamespace", targetNamespace)
-		return copySkipped
-	}
 
 	// Determine the target secret name, defaulting to the source secret name.
 
@@ -429,197 +388,32 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 		targetSecretName = sourceSecret.Name
 	}
 
-	// Fetch the target secret.
+	// When the reclaim policy is Delete, make the SecretCopier the owner of the
+	// copy so the garbage collector removes it when the SecretCopier is deleted.
 
-	var targetSecret corev1.Secret
+	var ownerReferences []metav1.OwnerReference
 
-	err := r.Get(ctx, client.ObjectKey{Namespace: targetNamespace, Name: targetSecretName}, &targetSecret)
-
-	if err != nil {
-		if client.IgnoreNotFound(err) != nil {
-			// Error reading the target secret. Log the error and return.
-
-			log.Error(err, "Unable to fetch target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
-			return copyFailed
-		}
+	if rule.ReclaimPolicy == secretsv1beta1.ReclaimDelete {
+		ownerReferences = append(ownerReferences, metav1.OwnerReference{
+			APIVersion:         secretCopier.APIVersion,
+			Kind:               secretCopier.Kind,
+			Name:               secretCopier.Name,
+			UID:                secretCopier.UID,
+			Controller:         ptr.To(true),
+			BlockOwnerDeletion: ptr.To(true),
+		})
 	}
 
-	log.V(1).Info("Fetched target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
+	engine := copyengine.Engine{Client: r.Client}
 
-	// If the target secret does not exist, create it.
-
-	if err != nil {
-		// The metadata for the target secret must use calculated target secret
-		// name and namespace. Labels need to be a copy of those from the source
-		// secret, overlaid with any additional labels specified in the rule for
-		// the target secret. Annotations need to be added to the target secret
-		// to indicate that it is managed by the SecretCopier object and was
-		// created from the source secret. If the retention policy is set to
-		// Delete, the SecretCopier object will be added as an owner reference
-		// to the target secret so that it will be automatically deleted when
-		// the SecretCopier object is deleted.
-
-		log.V(1).Info("Creating target secret", "targetSecret", targetSecret, "targetNamespace", targetNamespace)
-
-		targetSecretLabels := make(map[string]string)
-
-		maps.Copy(targetSecretLabels, secret.Labels)
-
-		maps.Copy(targetSecretLabels, rule.TargetSecret.Labels)
-
-		ownerReferences := []metav1.OwnerReference{}
-
-		if rule.ReclaimPolicy == secretsv1beta1.ReclaimDelete {
-			ownerReferences = append(ownerReferences, metav1.OwnerReference{
-				APIVersion:         secretCopier.APIVersion,
-				Kind:               secretCopier.Kind,
-				Name:               secretCopier.Name,
-				UID:                secretCopier.UID,
-				Controller:         ptr.To(true),
-				BlockOwnerDeletion: ptr.To(true),
-			})
-		}
-
-		targetSecret = corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      targetSecretName,
-				Namespace: targetNamespace,
-				Labels:    targetSecretLabels,
-				Annotations: map[string]string{
-					annotationSecretCopier: secretCopier.Name,
-					annotationSecretName:   sourceSecret.Namespace + "/" + sourceSecret.Name,
-				},
-				OwnerReferences: ownerReferences,
-			},
-			Type: secret.Type,
-			Data: secret.Data,
-		}
-
-		targetSecret.Namespace = targetNamespace
-
-		err = r.Create(ctx, &targetSecret)
-
-		if err != nil {
-			log.Error(err, "Unable to create target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
-			return copyFailed
-		}
-
-		log.V(1).Info("Created target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
-
-		return copyInSync
-	}
-
-	// Check that the target secret is managed by the SecretCopier object and
-	// was created from the same source secret originally. If it is not, a
-	// foreign secret already owns the target name, so leave it untouched and
-	// report a conflict.
-
-	if !r.targetSecretManagedBySecretCopier(secretCopier, rule, &targetSecret) {
-		log.V(1).Info("Skipping update of target secret as not managed by SecretCopier", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
-		return copyConflict
-	}
-
-	// If the target secret exists, check if it is different to the source
-	// secret and if it is, update it. Labels need to be a copy of those from
-	// the source secret, overlaid with any additional labels specified in the
-	// rule for the target secret.
-
-	if r.sourceSecretHasBeenUpdated(rule, secret, &targetSecret) {
-		log.V(1).Info("Updating target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
-
-		targetSecretLabels := make(map[string]string)
-
-		maps.Copy(targetSecretLabels, secret.Labels)
-
-		maps.Copy(targetSecretLabels, rule.TargetSecret.Labels)
-
-		targetSecret.Labels = targetSecretLabels
-
-		targetSecret.Data = secret.Data
-		targetSecret.Type = secret.Type
-
-		err = r.Update(ctx, &targetSecret)
-
-		if err != nil {
-			log.Error(err, "Unable to update target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
-			return copyFailed
-		}
-
-		log.V(1).Info("Updated target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
-	}
-
-	// The target secret exists and was either updated or already up to date.
-
-	return copyInSync
-}
-
-// Verify that an existing target secret was originally created from the source
-// secret and by the same SecretCopier object. This is done by checking the
-// annotations on the target secret.
-func (r *SecretCopierReconciler) targetSecretManagedBySecretCopier(secretCopier *secretsv1beta1.SecretCopier, rule *secretsv1beta1.SecretCopierRule, targetSecret *corev1.Secret) bool {
-	if targetSecret.Annotations[annotationSecretCopier] != secretCopier.Name {
-		return false
-	}
-
-	if targetSecret.Annotations[annotationSecretName] != rule.SourceSecret.Namespace+"/"+rule.SourceSecret.Name {
-		return false
-	}
-
-	return true
-}
-
-// Determine if the source secret has been updated by comparing the type, data
-// and labels of the source and target secrets.
-func (r *SecretCopierReconciler) sourceSecretHasBeenUpdated(rule *secretsv1beta1.SecretCopierRule, sourceSecret, targetSecret *corev1.Secret) bool {
-	if sourceSecret.Type != targetSecret.Type {
-		return true
-	}
-
-	mapStringBytesEqual := func(a map[string][]byte, b map[string][]byte) bool {
-		if a == nil && b == nil {
-			return true
-		}
-		if a == nil || b == nil {
-			return false
-		}
-		if len(a) != len(b) {
-			return false
-		}
-		for key, valueA := range a {
-			if valueB, ok := b[key]; !ok || !bytes.Equal(valueA, valueB) {
-				return false
-			}
-		}
-		return true
-	}
-
-	if !mapStringBytesEqual(sourceSecret.Data, targetSecret.Data) {
-		return true
-	}
-
-	targetSecretLabels := make(map[string]string)
-
-	maps.Copy(targetSecretLabels, sourceSecret.Labels)
-
-	maps.Copy(targetSecretLabels, rule.TargetSecret.Labels)
-
-	mapStringStringEqual := func(a map[string]string, b map[string]string) bool {
-		if a == nil && b == nil {
-			return true
-		}
-		if a == nil || b == nil {
-			return false
-		}
-		if len(a) != len(b) {
-			return false
-		}
-		for key, valueA := range a {
-			if valueB, ok := b[key]; !ok || valueA != valueB {
-				return false
-			}
-		}
-		return true
-	}
-
-	return !mapStringStringEqual(targetSecret.Labels, targetSecretLabels)
+	return engine.CopySecret(ctx, copyengine.Request{
+		Source:          secret,
+		SourceNamespace: sourceSecret.Namespace,
+		SourceName:      sourceSecret.Name,
+		TargetNamespace: targetNamespace,
+		TargetName:      targetSecretName,
+		TargetLabels:    rule.TargetSecret.Labels,
+		ManagedByValue:  secretCopier.Name,
+		OwnerReferences: ownerReferences,
+	})
 }

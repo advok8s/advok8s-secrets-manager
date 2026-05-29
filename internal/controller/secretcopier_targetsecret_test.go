@@ -21,6 +21,8 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/advok8s/advok8s-secrets-manager/internal/copyengine"
 )
 
 // How the target secret is shaped: name (rename), labels (source labels
@@ -48,8 +50,8 @@ var _ = Describe("SecretCopier shaping the target secret", func() {
 			// Source labels overlaid with rule labels (rule wins on "env").
 			Expect(target.Labels).To(Equal(map[string]string{"env": "override", "managed-by": "advok8s"}))
 			// Tracking annotations.
-			Expect(target.Annotations).To(HaveKeyWithValue(annotationSecretCopier, "shape-copier"))
-			Expect(target.Annotations).To(HaveKeyWithValue(annotationSecretName, "shape-src/original-name"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedBy, "shape-copier"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationSourceSecret, "shape-src/original-name"))
 
 			// The source secret itself is left untouched.
 			source := eventuallyGetSecret("shape-src", "original-name")

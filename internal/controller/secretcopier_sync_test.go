@@ -23,6 +23,8 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/advok8s/advok8s-secrets-manager/internal/copyengine"
 )
 
 // These specs exercise keeping a target secret in sync with its source after
@@ -101,7 +103,7 @@ var _ = Describe("SecretCopier keeping a target secret in sync", func() {
 					Name:      defaultTargetSecretName,
 				}, existing)).To(Succeed())
 				g.Expect(existing.Data).To(HaveKeyWithValue("pre", []byte("existing")))
-				g.Expect(existing.Annotations).NotTo(HaveKey(annotationSecretCopier))
+				g.Expect(existing.Annotations).NotTo(HaveKey(copyengine.AnnotationManagedBy))
 			}, 2*time.Second, 250*time.Millisecond).Should(Succeed())
 		})
 	})
