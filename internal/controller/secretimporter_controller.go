@@ -226,9 +226,17 @@ func (r *SecretImporterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // findImporterForSecret enqueues the importer named the same as a changed secret
 // in the same namespace, so its imported status tracks the copy arriving or
-// being removed.
+// being removed. Most secrets in a cluster have no like-named importer, so it
+// only enqueues when one actually exists - otherwise every secret event would
+// trigger a no-op reconcile. The lookup is served from the controller's cache.
 func (r *SecretImporterReconciler) findImporterForSecret(ctx context.Context, secret client.Object) []reconcile.Request {
-	return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: secret.GetNamespace(), Name: secret.GetName()}}}
+	key := client.ObjectKey{Namespace: secret.GetNamespace(), Name: secret.GetName()}
+
+	if err := r.Get(ctx, key, &secretsv1beta1.SecretImporter{}); err != nil {
+		return nil
+	}
+
+	return []reconcile.Request{{NamespacedName: key}}
 }
 
 // findImportersForExporter enqueues importers whose name matches an effective
