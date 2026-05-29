@@ -71,6 +71,8 @@ type SecretCopierRule struct {
 type SecretCopierSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	// The following markers will use OpenAPI v3 schema to validate the value
+	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
 
 	// A list of rules for copying secrets.
 	Rules []SecretCopierRule `json:"rules,omitempty"`
@@ -80,10 +82,27 @@ type SecretCopierSpec struct {
 	SyncPeriod metav1.Duration `json:"syncPeriod,omitempty"`
 }
 
-// SecretCopierStatus defines the observed state of SecretCopier
+// SecretCopierStatus defines the observed state of SecretCopier.
 type SecretCopierStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+
+	// For Kubernetes API conventions, see:
+	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+
+	// conditions represent the current state of the SecretCopier resource.
+	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
+	//
+	// Standard condition types include:
+	// - "Available": the resource is fully functional
+	// - "Progressing": the resource is being created or updated
+	// - "Degraded": the resource failed to reach or maintain its desired state
+	//
+	// The status of each condition is one of True, False, or Unknown.
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -92,11 +111,19 @@ type SecretCopierStatus struct {
 
 // SecretCopier is the Schema for the secretcopiers API
 type SecretCopier struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.TypeMeta `json:",inline"`
 
-	Spec   SecretCopierSpec   `json:"spec,omitempty"`
-	Status SecretCopierStatus `json:"status,omitempty"`
+	// metadata is a standard object metadata
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitzero"`
+
+	// spec defines the desired state of SecretCopier
+	// +required
+	Spec SecretCopierSpec `json:"spec"`
+
+	// status defines the observed state of SecretCopier
+	// +optional
+	Status SecretCopierStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true
@@ -104,7 +131,7 @@ type SecretCopier struct {
 // SecretCopierList contains a list of SecretCopier
 type SecretCopierList struct {
 	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
+	metav1.ListMeta `json:"metadata,omitzero"`
 	Items           []SecretCopier `json:"items"`
 }
 
