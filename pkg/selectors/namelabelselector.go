@@ -16,6 +16,8 @@ limitations under the License.
 
 package selectors
 
+import "slices"
+
 // NameLabelSelector matches a resource by name and/or labels. It is used by
 // SecretInjector to select the source secrets and the service accounts to
 // inject them into.
@@ -51,14 +53,7 @@ func (s NameLabelSelector) IsEmpty() bool {
 // the selector.
 func (s NameLabelSelector) Matches(name string, labels map[string]string) bool {
 	if s.NameSelector != nil && len(s.NameSelector.MatchNames) > 0 {
-		found := false
-		for _, candidate := range s.NameSelector.MatchNames {
-			if candidate == name {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(s.NameSelector.MatchNames, name) {
 			return false
 		}
 	}
