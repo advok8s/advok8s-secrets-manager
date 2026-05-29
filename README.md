@@ -1,13 +1,72 @@
 # advok8s-secrets-manager
-// TODO(user): Add simple overview of use/purpose
+
+A Kubernetes operator that copies Secrets from a source namespace into one or
+more target namespaces and keeps the copies in sync.
 
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+
+`advok8s-secrets-manager` removes the need to manually duplicate shared Secrets
+(image pull secrets, TLS certificates, API tokens, etc.) across namespaces. You
+describe what to copy and where using a cluster-scoped `SecretCopier` custom
+resource (API group `secrets.advok8s.io/v1beta1`), and the controller does the
+rest.
+
+A `SecretCopier` holds a list of rules. Each rule defines:
+
+- **A source secret** — the Secret to copy, identified by name and namespace.
+- **Target namespaces** — which namespaces receive a copy, chosen by one or more
+  selectors: by name (`nameSelector`), by labels (`labelSelector`), by owner
+  reference (`ownerSelector`), or by namespace UID (`uidSelector`).
+- **A target secret** — the name to give the copy (allowing a rename) and any
+  extra labels to apply to it.
+- **A reclaim policy** — `Delete` (default) or `Retain`, controlling whether
+  copies are garbage-collected.
+
+For every namespace that matches a rule, the controller creates a Secret with
+the source Secret's type and data, merges the source Secret's labels with any
+labels named in the rule, and stamps tracking annotations
+(`secrets.advok8s.io/secret-copier` and `secrets.advok8s.io/secret-name`) so it
+can recognise and update its own copies. When the reclaim policy is `Delete`, it
+sets an owner reference on each copy so Kubernetes garbage-collects the copies
+automatically when the `SecretCopier` is removed.
+
+Copies are kept current: the controller re-reconciles on a configurable interval
+(`spec.syncPeriod`, default `1m`) and also reacts to changes in source Secrets
+and namespaces, so copies update when a source Secret changes and new copies
+appear when a matching namespace is created.
+
+### Example
+
+```yaml
+apiVersion: secrets.advok8s.io/v1beta1
+kind: SecretCopier
+metadata:
+  name: distribute-pull-secret
+spec:
+  syncPeriod: 1m
+  rules:
+  - sourceSecret:
+      namespace: platform
+      name: registry-credentials
+    targetNamespaces:
+      labelSelector:
+        matchLabels:
+          team: backend
+    targetSecret:
+      name: registry-credentials
+      labels:
+        managed-by: advok8s-secrets-manager
+    reclaimPolicy: Delete
+```
+
+This copies the `registry-credentials` Secret from the `platform` namespace into
+every namespace labelled `team=backend`, and re-creates or updates those copies
+whenever the source changes or a new matching namespace appears.
 
 ## Getting Started
 
 ### Prerequisites
-- go version v1.24.6+
+- go version v1.25.0+
 - docker version 17.03+.
 - kubectl version v1.11.3+.
 - Access to a Kubernetes v1.11.3+ cluster.
@@ -111,7 +170,12 @@ previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml
 is manually re-applied afterwards.
 
 ## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
+
+Contributions are welcome. Please open an issue to discuss substantial changes
+before submitting a pull request, and make sure `make test` and `make lint` pass
+before opening one. The project is scaffolded with [Kubebuilder](https://book.kubebuilder.io/);
+after editing API types or markers, run `make manifests generate` to regenerate
+the CRDs, RBAC, and DeepCopy code.
 
 **NOTE:** Run `make help` for more information on all potential `make` targets
 
