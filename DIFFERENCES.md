@@ -86,7 +86,27 @@ Python controller never reads it — it appears to be a copy-paste leftover. Thi
 implementation omits it. Authorization keys off the importer's name, shared
 secret, and source-namespace selector.
 
-## Not yet implemented
+## SecretInjector
 
-`SecretInjector` is not yet ported. When it lands, its differences and status
-fields will be recorded here.
+Behaviourally equivalent: it injects references to matching secrets into matching
+service accounts within matching namespaces — image pull secrets
+(`kubernetes.io/dockerconfigjson`) into `imagePullSecrets`, other types into
+`secrets` — adding references idempotently and never removing them. Source-secret
+and service-account name matching is exact set membership (no globs), as in the
+Python operator.
+
+### Added: `spec.syncPeriod` and populated `status`
+
+As for the other resources: a configurable `syncPeriod` (default `1m`, `"0s"` to
+disable) and a populated `status` (`observedGeneration`, `Ready`/`Degraded`
+conditions, and summary / per-rule counts: target namespaces, service accounts
+matched, injections in sync, failures). `injectionsInSync` counts references that
+are present, not a reconciled-to-exact total, because injections are never
+removed. The Educates implementation leaves status unmanaged.
+
+### Superset: `targetNamespaces` also supports `ownerSelector`
+
+The injector reuses the same target-namespace selector as SecretCopier, which
+includes `ownerSelector` (and `uidSelector`). The Educates `SecretInjector` CRD
+offers only name / uid / label selectors for namespaces, so this is a (harmless)
+superset; rules that do not use `ownerSelector` behave identically.

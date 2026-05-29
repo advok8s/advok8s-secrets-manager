@@ -267,6 +267,77 @@ func createSecretImporter(namespace, name, sharedSecret string, sourceNamespaceN
 	return importer
 }
 
+// createServiceAccount creates a service account and waits until it can be read
+// back. envtest does not run the service-account controller, so the default
+// service account is not created automatically; tests create the ones they need.
+func createServiceAccount(namespace, name string, labels map[string]string) *corev1.ServiceAccount {
+	GinkgoHelper()
+
+	serviceAccount := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
+	}
+	Expect(k8sClient.Create(ctx, serviceAccount)).To(Succeed())
+
+	Eventually(func() error {
+		return k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, serviceAccount)
+	}).Should(Succeed())
+
+	return serviceAccount
+}
+
+// injectorRule builds a SecretInjectorRule selecting source secrets, target
+// namespaces and service accounts by exact name. Empty slices leave that
+// selector unset (which matches everything for source/service-account
+// selectors, and all non-kube-* namespaces for target namespaces).
+func injectorRule(sourceSecretNames, serviceAccountNames, targetNamespaces []string) secretsv1beta1.SecretInjectorRule {
+	rule := secretsv1beta1.SecretInjectorRule{
+		TargetNamespaces: nameTargetNamespaces(targetNamespaces...),
+	}
+	if len(sourceSecretNames) > 0 {
+		rule.SourceSecrets = selectors.NameLabelSelector{
+			NameSelector: &selectors.NameSelector{MatchNames: sourceSecretNames},
+		}
+	}
+	if len(serviceAccountNames) > 0 {
+		rule.ServiceAccounts = selectors.NameLabelSelector{
+			NameSelector: &selectors.NameSelector{MatchNames: serviceAccountNames},
+		}
+	}
+	return rule
+}
+
+// createSecretInjector creates a SecretInjector and waits until it can be read
+// back.
+func createSecretInjector(name string, rules ...secretsv1beta1.SecretInjectorRule) *secretsv1beta1.SecretInjector {
+	GinkgoHelper()
+
+	injector := &secretsv1beta1.SecretInjector{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec:       secretsv1beta1.SecretInjectorSpec{Rules: rules},
+	}
+	Expect(k8sClient.Create(ctx, injector)).To(Succeed())
+
+	Eventually(func() error {
+		return k8sClient.Get(ctx, client.ObjectKey{Name: name}, injector)
+	}).Should(Succeed())
+
+	return injector
+}
+
+// eventuallyGetServiceAccount waits for a service account to carry the given
+// reference in the expected field and returns it.
+func eventuallyServiceAccountHas(namespace, name string, check func(*corev1.ServiceAccount) bool) *corev1.ServiceAccount {
+	GinkgoHelper()
+
+	serviceAccount := &corev1.ServiceAccount{}
+	Eventually(func(g Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, serviceAccount)).To(Succeed())
+		g.Expect(check(serviceAccount)).To(BeTrue())
+	}, secretCreatedTimeout).Should(Succeed())
+
+	return serviceAccount
+}
+
 // eventuallyGetSecret waits for the named secret to exist and returns it.
 func eventuallyGetSecret(namespace, name string) *corev1.Secret {
 	GinkgoHelper()

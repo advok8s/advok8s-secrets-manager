@@ -25,11 +25,22 @@ rules:
   - update
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - serviceaccounts
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - secrets.advok8s.io
   resources:
   - secretcopiers
   - secretexporters
   - secretimporters
+  - secretinjectors
   verbs:
   - create
   - delete
@@ -44,6 +55,7 @@ rules:
   - secretcopiers/finalizers
   - secretexporters/finalizers
   - secretimporters/finalizers
+  - secretinjectors/finalizers
   verbs:
   - update
 - apiGroups:
@@ -52,6 +64,7 @@ rules:
   - secretcopiers/status
   - secretexporters/status
   - secretimporters/status
+  - secretinjectors/status
   verbs:
   - get
   - patch

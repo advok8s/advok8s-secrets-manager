@@ -8,12 +8,11 @@ more target namespaces and keeps the copies in sync.
 `advok8s-secrets-manager` is a Go (Kubebuilder / controller-runtime)
 reimplementation of the Educates
 [`secrets-manager`](https://github.com/educates/educates-training-platform)
-operator. It copies and distributes Kubernetes Secrets across namespaces, and
-will additionally inject and import/export them as the remaining resources are
-ported.
+operator. It copies and distributes Kubernetes Secrets across namespaces, and injects
+references to them into service accounts.
 
-**Implemented so far:** `SecretCopier`, `SecretExporter`, `SecretImporter`.
-Planned: `SecretInjector`.
+**Implemented:** `SecretCopier`, `SecretExporter`, `SecretImporter`,
+`SecretInjector`.
 
 The custom resources are functionally equivalent to the originals, so their
 behaviour is documented authoritatively by the Educates project rather than
