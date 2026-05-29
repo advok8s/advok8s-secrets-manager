@@ -49,6 +49,16 @@ func TestSourceChanged(t *testing.T) {
 			expected: false,
 		},
 		{
+			// Regression: a copy with no labels reads back with nil labels, while
+			// the computed label set is an empty (non-nil) map. These must be
+			// equal, otherwise a label-less copy is updated on every reconcile.
+			name:       "no labels source and nil labels target -> no change",
+			sourceType: opaque, targetType: opaque,
+			sourceData: data("v"), targetData: data("v"),
+			sourceLabels: nil, targetLabels: nil,
+			expected: false,
+		},
+		{
 			name:       "different type -> changed",
 			sourceType: opaque, targetType: corev1.SecretTypeTLS,
 			sourceData: data("v"), targetData: data("v"),

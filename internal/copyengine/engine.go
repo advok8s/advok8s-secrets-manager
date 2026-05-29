@@ -272,12 +272,9 @@ func overlayLabels(base, extra map[string]string) map[string]string {
 }
 
 func mapStringBytesEqual(a, b map[string][]byte) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
+	// A nil map and an empty map are treated as equal: a secret stored with no
+	// data reads back as nil, whereas a freshly computed map may be empty but
+	// non-nil, and the two must not be seen as different.
 	if len(a) != len(b) {
 		return false
 	}
@@ -290,12 +287,10 @@ func mapStringBytesEqual(a, b map[string][]byte) bool {
 }
 
 func mapStringStringEqual(a, b map[string]string) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
+	// A nil map and an empty map are treated as equal: a secret stored with no
+	// labels reads back as nil, whereas overlayLabels always returns a non-nil
+	// (possibly empty) map, and the two must not be seen as different - else a
+	// label-less copy would be updated on every reconcile.
 	if len(a) != len(b) {
 		return false
 	}
