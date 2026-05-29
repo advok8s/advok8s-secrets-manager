@@ -5,63 +5,29 @@ more target namespaces and keeps the copies in sync.
 
 ## Description
 
-`advok8s-secrets-manager` removes the need to manually duplicate shared Secrets
-(image pull secrets, TLS certificates, API tokens, etc.) across namespaces. You
-describe what to copy and where using a cluster-scoped `SecretCopier` custom
-resource (API group `secrets.advok8s.io/v1beta1`), and the controller does the
-rest.
+`advok8s-secrets-manager` is a Go (Kubebuilder / controller-runtime)
+reimplementation of the Educates
+[`secrets-manager`](https://github.com/educates/educates-training-platform)
+operator. It copies and distributes Kubernetes Secrets across namespaces, and
+will additionally inject and import/export them as the remaining resources are
+ported.
 
-A `SecretCopier` holds a list of rules. Each rule defines:
+**Implemented so far:** `SecretCopier`. Planned: `SecretExporter`,
+`SecretImporter`, `SecretInjector`.
 
-- **A source secret** — the Secret to copy, identified by name and namespace.
-- **Target namespaces** — which namespaces receive a copy, chosen by one or more
-  selectors: by name (`nameSelector`), by labels (`labelSelector`), by owner
-  reference (`ownerSelector`), or by namespace UID (`uidSelector`).
-- **A target secret** — the name to give the copy (allowing a rename) and any
-  extra labels to apply to it.
-- **A reclaim policy** — `Delete` (default) or `Retain`, controlling whether
-  copies are garbage-collected.
+The custom resources are functionally equivalent to the originals, so their
+behaviour is documented authoritatively by the Educates project rather than
+duplicated here:
 
-For every namespace that matches a rule, the controller creates a Secret with
-the source Secret's type and data, merges the source Secret's labels with any
-labels named in the rule, and stamps tracking annotations
-(`secrets.advok8s.io/secret-copier` and `secrets.advok8s.io/secret-name`) so it
-can recognise and update its own copies. When the reclaim policy is `Delete`, it
-sets an owner reference on each copy so Kubernetes garbage-collects the copies
-automatically when the `SecretCopier` is removed.
-
-Copies are kept current: the controller re-reconciles on a configurable interval
-(`spec.syncPeriod`, default `1m`) and also reacts to changes in source Secrets
-and namespaces, so copies update when a source Secret changes and new copies
-appear when a matching namespace is created.
-
-### Example
-
-```yaml
-apiVersion: secrets.advok8s.io/v1beta1
-kind: SecretCopier
-metadata:
-  name: distribute-pull-secret
-spec:
-  syncPeriod: 1m
-  rules:
-  - sourceSecret:
-      namespace: platform
-      name: registry-credentials
-    targetNamespaces:
-      labelSelector:
-        matchLabels:
-          team: backend
-    targetSecret:
-      name: registry-credentials
-      labels:
-        managed-by: advok8s-secrets-manager
-    reclaimPolicy: Delete
-```
-
-This copies the `registry-credentials` Secret from the `platform` namespace into
-every namespace labelled `team=backend`, and re-creates or updates those copies
-whenever the source changes or a new matching namespace appears.
+- **Resource behaviour** — Educates custom-resource docs:
+  [secret-copier](https://github.com/educates/educates-training-platform/blob/develop/project-docs/custom-resources/secret-copier.md)
+  (and `secret-exporter`, `secret-importer`, `secret-injector`).
+- **How this implementation differs** — see [DIFFERENCES.md](DIFFERENCES.md).
+  The most visible difference: the API group is `secrets.advok8s.io`, not
+  `secrets.educates.dev`.
+- **Field-level reference** — `kubectl explain secretcopier.spec` against an
+  installed CRD.
+- **Runnable examples** — see [`config/samples/`](config/samples/).
 
 ## Getting Started
 
