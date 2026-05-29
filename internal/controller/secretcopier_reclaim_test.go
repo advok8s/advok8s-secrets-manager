@@ -47,6 +47,10 @@ var _ = Describe("SecretCopier reclaim policy", func() {
 			Expect(owner.UID).To(Equal(copier.UID))
 			Expect(owner.Controller).To(HaveValue(BeTrue()))
 			Expect(owner.BlockOwnerDeletion).To(HaveValue(BeTrue()))
+			// apiVersion and kind must be populated for the garbage collector to
+			// resolve the owner; the API server also requires them to be non-empty.
+			Expect(owner.APIVersion).To(Equal("secrets.advok8s.io/v1beta1"))
+			Expect(owner.Kind).To(Equal("SecretCopier"))
 		})
 	})
 
