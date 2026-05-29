@@ -16,6 +16,8 @@ limitations under the License.
 
 package selectors
 
+import "slices"
+
 // UIDSelector is a selector which matches on UID.
 // +k8s:deepcopy-gen=true
 type UIDSelector struct {
@@ -30,11 +32,5 @@ func (s UIDSelector) IsEmpty() bool {
 
 // Matches against a uid.
 func (s UIDSelector) Matches(uid string) bool {
-	for _, name := range s.MatchUids {
-		if name == uid {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(s.MatchUids, uid)
 }

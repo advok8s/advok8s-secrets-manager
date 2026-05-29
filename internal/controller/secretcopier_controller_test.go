@@ -31,6 +31,11 @@ import (
 	"github.com/advok8s/advok8s-secrets-manager/pkg/selectors"
 )
 
+const (
+	defaultSourceSecretName = "source-secret-1"
+	defaultTargetSecretName = "target-secret-1"
+)
+
 var _ = Describe("SecretCopier Controller", func() {
 	ctx := context.Background()
 
@@ -50,9 +55,9 @@ var _ = Describe("SecretCopier Controller", func() {
 	Context("Copy secret to target namespace #1", func() {
 		It("should copy secret to target namespace", func() {
 			sourceNamespaceName := "source-namespace-1"
-			sourceSecretName := "source-secret-1"
+			sourceSecretName := defaultSourceSecretName
 			targetNamespaceName := "target-namespace-1"
-			targetSecretName := "target-secret-1"
+			targetSecretName := defaultTargetSecretName
 			secretCopierName := "secret-copier-1"
 
 			// Create source namespace.
@@ -183,9 +188,9 @@ var _ = Describe("SecretCopier Controller", func() {
 	Context("Copy secret to target namespace #2", func() {
 		It("should copy secret to target namespace", func() {
 			sourceNamespaceName := "source-namespace-2"
-			sourceSecretName := "source-secret-1"
+			sourceSecretName := defaultSourceSecretName
 			targetNamespaceName := "target-namespace-2"
-			targetSecretName := "target-secret-1"
+			targetSecretName := defaultTargetSecretName
 			secretCopierName := "secret-copier-2"
 
 			// Create source namespace.
@@ -316,9 +321,9 @@ var _ = Describe("SecretCopier Controller", func() {
 	Context("Copy secret to target namespace #3", func() {
 		It("should copy secret to target namespace", func() {
 			sourceNamespaceName := "source-namespace-3"
-			sourceSecretName := "source-secret-1"
+			sourceSecretName := defaultSourceSecretName
 			targetNamespaceName := "target-namespace-3"
-			targetSecretName := "target-secret-1"
+			targetSecretName := defaultTargetSecretName
 			secretCopierName := "secret-copier-3"
 
 			// Create source namespace.
@@ -449,9 +454,9 @@ var _ = Describe("SecretCopier Controller", func() {
 	Context("Copy secret to target namespace #4", func() {
 		It("should copy secret to target namespace", func() {
 			sourceNamespaceName := "source-namespace-4"
-			sourceSecretName := "source-secret-1"
+			sourceSecretName := defaultSourceSecretName
 			targetNamespaceName := "target-namespace-4"
-			targetSecretName := "target-secret-1"
+			targetSecretName := defaultTargetSecretName
 			secretCopierName := "secret-copier-4"
 
 			// Create source namespace.
@@ -581,9 +586,9 @@ var _ = Describe("SecretCopier Controller", func() {
 		Context("Copy secret to target namespace #5", func() {
 			It("should copy secret to target namespace", func() {
 				sourceNamespaceName := "source-namespace-5"
-				sourceSecretName := "source-secret-1"
+				sourceSecretName := defaultSourceSecretName
 				targetNamespaceName := "target-namespace-5"
-				targetSecretName := "target-secret-1"
+				targetSecretName := defaultTargetSecretName
 				secretCopierName := "secret-copier-5"
 
 				// Create source namespace.
@@ -726,7 +731,7 @@ var _ = Describe("SecretCopier Controller", func() {
 				// Verify that the target secret has the labels that were
 				// specified in the target secret.
 
-				Expect(targetSecret.ObjectMeta.Labels).To(Equal(sourceSecret.ObjectMeta.Labels))
+				Expect(targetSecret.ObjectMeta.Labels).To(Equal(sourceSecret.Labels))
 
 				// Update the data and labels in the source secret.
 
@@ -737,7 +742,7 @@ var _ = Describe("SecretCopier Controller", func() {
 					"data-key2": "data-value2",
 				}
 
-				sourceSecret.ObjectMeta.Labels = map[string]string{
+				sourceSecret.Labels = map[string]string{
 					"label-key1": "label-value1",
 					"label-key2": "label-value2",
 				}

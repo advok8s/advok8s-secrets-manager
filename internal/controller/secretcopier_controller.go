@@ -19,6 +19,7 @@ package controller
 import (
 	"bytes"
 	"context"
+	"maps"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,7 +28,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/log"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
@@ -53,7 +54,7 @@ type SecretCopierReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.3/pkg/reconcile
 func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := log.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
 	// Fetch the named SecretCopier object.
 
@@ -195,7 +196,7 @@ func (r *SecretCopierReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // the secret is one that the SecretCopier is interested in and copy it to any
 // target namespaces if it is.
 func (r *SecretCopierReconciler) findSecretCopiersMatchingSourceSecret(ctx context.Context, secret client.Object) []reconcile.Request {
-	log := log.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
 	// Fetch the list of SecretCopier objects.
 
@@ -237,7 +238,7 @@ func (r *SecretCopierReconciler) findSecretCopiersMatchingSourceSecret(ctx conte
 // namespace is one that the SecretCopier is interested in and copy secrets to
 // it if it is.
 func (r *SecretCopierReconciler) findSecretCopiersMatchingTargetNamespace(ctx context.Context, object client.Object) []reconcile.Request {
-	log := log.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
 	// Convert the object to a Namespace object.
 
@@ -290,7 +291,7 @@ func (r *SecretCopierReconciler) findSecretCopiersMatchingTargetNamespace(ctx co
 // again that we are not trying to copy the secret to the same namespace it is
 // in.
 func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secretCopier *secretsv1beta1.SecretCopier, rule *secretsv1beta1.SecretCopierRule, targetNamespace string) {
-	log := log.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
 	// Check that we are not trying to copy the secret to the same namespace it
 	// is in.
@@ -364,13 +365,9 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 
 		targetSecretLabels := make(map[string]string)
 
-		for key, value := range secret.Labels {
-			targetSecretLabels[key] = value
-		}
+		maps.Copy(targetSecretLabels, secret.Labels)
 
-		for key, value := range rule.TargetSecret.Labels {
-			targetSecretLabels[key] = value
-		}
+		maps.Copy(targetSecretLabels, rule.TargetSecret.Labels)
 
 		ownerReferences := []metav1.OwnerReference{}
 
@@ -433,15 +430,11 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 
 		targetSecretLabels := make(map[string]string)
 
-		for key, value := range secret.Labels {
-			targetSecretLabels[key] = value
-		}
+		maps.Copy(targetSecretLabels, secret.Labels)
 
-		for key, value := range rule.TargetSecret.Labels {
-			targetSecretLabels[key] = value
-		}
+		maps.Copy(targetSecretLabels, rule.TargetSecret.Labels)
 
-		targetSecret.ObjectMeta.Labels = targetSecretLabels
+		targetSecret.Labels = targetSecretLabels
 
 		targetSecret.Data = secret.Data
 		targetSecret.Type = secret.Type
@@ -503,13 +496,9 @@ func (r *SecretCopierReconciler) sourceSecretHasBeenUpdated(rule *secretsv1beta1
 
 	targetSecretLabels := make(map[string]string)
 
-	for key, value := range sourceSecret.Labels {
-		targetSecretLabels[key] = value
-	}
+	maps.Copy(targetSecretLabels, sourceSecret.Labels)
 
-	for key, value := range rule.TargetSecret.Labels {
-		targetSecretLabels[key] = value
-	}
+	maps.Copy(targetSecretLabels, rule.TargetSecret.Labels)
 
 	mapStringStringEqual := func(a map[string]string, b map[string]string) bool {
 		if a == nil && b == nil {
@@ -529,9 +518,5 @@ func (r *SecretCopierReconciler) sourceSecretHasBeenUpdated(rule *secretsv1beta1
 		return true
 	}
 
-	if !mapStringStringEqual(sourceSecret.Labels, targetSecretLabels) {
-		return true
-	}
-
-	return false
+	return !mapStringStringEqual(sourceSecret.Labels, targetSecretLabels)
 }
