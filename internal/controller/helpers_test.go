@@ -18,16 +18,20 @@ package controller
 
 // This file holds shared helpers for the controller test suite. The specs
 // themselves live in behaviour-grouped files so it is clear where new tests
-// belong as coverage grows, for example:
+// belong as coverage grows:
 //
-//   secretcopier_copy_test.go    - copying a source secret into target
-//                                  namespaces (creation / ordering scenarios)
-//   secretcopier_sync_test.go    - keeping target secrets in sync when the
-//                                  source secret changes
+//   secretcopier_copy_test.go            - copying a source secret into target
+//                                          namespaces (creation / ordering)
+//   secretcopier_sync_test.go            - keeping target secrets in sync and
+//                                          the guards around updating them
+//   secretcopier_reclaim_test.go         - reclaim policy (owner references)
+//   secretcopier_targetsecret_test.go    - target rename, labels, annotations
+//   secretcopier_selectors_test.go       - selecting target namespaces
+//   secretcopier_multirule_test.go       - multiple rules / namespaces
+//   secretcopier_syncperiod_test.go      - requeue-after behaviour
+//   secretcopier_reconcile_logic_test.go - pure-function unit tests
 //
-// Future areas (reclaim policy Delete vs Retain, target secret renaming and
-// labelling, namespace selection by label/owner/uid, multiple rules, error
-// and edge cases) should each get their own secretcopier_<behaviour>_test.go
+// New behaviour areas should each get their own secretcopier_<behaviour>_test.go
 // file and reuse the builders below.
 
 import (
@@ -36,6 +40,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -55,9 +60,16 @@ const secretCreatedTimeout = 5 * time.Second
 // createNamespace creates a namespace and waits until it can be read back.
 func createNamespace(name string) *corev1.Namespace {
 	GinkgoHelper()
+	return createNamespaceWithLabels(name, nil)
+}
+
+// createNamespaceWithLabels creates a labelled namespace and waits until it can
+// be read back.
+func createNamespaceWithLabels(name string, labels map[string]string) *corev1.Namespace {
+	GinkgoHelper()
 
 	namespace := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{Name: name},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels},
 	}
 	Expect(k8sClient.Create(ctx, namespace)).To(Succeed())
 
@@ -93,34 +105,72 @@ func createOpaqueSecret(namespace, name string, stringData, labels map[string]st
 	return secret
 }
 
+// ruleOptions configures copyRule. An empty Reclaim defaults to Delete; leave
+// MatchNames or MatchLabels unset to omit that selector.
+type ruleOptions struct {
+	SourceNamespace string
+	SourceName      string
+	TargetName      string
+	TargetLabels    map[string]string
+	Reclaim         secretsv1beta1.ReclaimPolicy
+	MatchNames      []string
+	MatchLabels     map[string]string
+}
+
+// copyRule builds a SecretCopierRule from options. The matchNames, matchUids
+// and matchOwners selector fields are required by the CRD schema, so they are
+// always emitted as non-nil (empty) slices even when unused.
+func copyRule(o ruleOptions) secretsv1beta1.SecretCopierRule {
+	reclaim := o.Reclaim
+	if reclaim == "" {
+		reclaim = secretsv1beta1.ReclaimDelete
+	}
+
+	matchNames := o.MatchNames
+	if matchNames == nil {
+		matchNames = []string{}
+	}
+
+	return secretsv1beta1.SecretCopierRule{
+		SourceSecret: secretsv1beta1.SourceSecret{
+			Namespace: o.SourceNamespace,
+			Name:      o.SourceName,
+		},
+		TargetNamespaces: selectors.TargetNamespaces{
+			NameSelector:  selectors.NameSelector{MatchNames: matchNames},
+			UIDSelector:   selectors.UIDSelector{MatchUids: []string{}},
+			OwnerSelector: selectors.OwnerSelector{MatchOwners: []selectors.OwnerReference{}},
+			LabelSelector: selectors.LabelSelector{MatchLabels: o.MatchLabels},
+		},
+		TargetSecret: secretsv1beta1.TargetSecret{
+			Name:   o.TargetName,
+			Labels: o.TargetLabels,
+		},
+		ReclaimPolicy: reclaim,
+	}
+}
+
 // nameSelectorRule builds a copy rule that selects target namespaces by exact
 // name and copies the source secret into them under targetSecretName, with the
 // reclaim policy set to Delete.
 func nameSelectorRule(sourceNamespace, sourceName, targetSecretName string, targetNamespaces ...string) secretsv1beta1.SecretCopierRule {
-	return secretsv1beta1.SecretCopierRule{
-		SourceSecret: secretsv1beta1.SourceSecret{
-			Namespace: sourceNamespace,
-			Name:      sourceName,
-		},
-		TargetNamespaces: selectors.TargetNamespaces{
-			NameSelector: selectors.NameSelector{
-				MatchNames: targetNamespaces,
-			},
-			OwnerSelector: selectors.OwnerSelector{
-				MatchOwners: []selectors.OwnerReference{},
-			},
-			UIDSelector: selectors.UIDSelector{
-				MatchUids: []string{},
-			},
-			LabelSelector: selectors.LabelSelector{
-				MatchLabels: map[string]string{},
-			},
-		},
-		TargetSecret: secretsv1beta1.TargetSecret{
-			Name: targetSecretName,
-		},
-		ReclaimPolicy: secretsv1beta1.ReclaimDelete,
-	}
+	return copyRule(ruleOptions{
+		SourceNamespace: sourceNamespace,
+		SourceName:      sourceName,
+		TargetName:      targetSecretName,
+		MatchNames:      targetNamespaces,
+	})
+}
+
+// nameSelectorRuleWithReclaim is nameSelectorRule with an explicit reclaim policy.
+func nameSelectorRuleWithReclaim(sourceNamespace, sourceName, targetSecretName string, reclaim secretsv1beta1.ReclaimPolicy, targetNamespaces ...string) secretsv1beta1.SecretCopierRule {
+	return copyRule(ruleOptions{
+		SourceNamespace: sourceNamespace,
+		SourceName:      sourceName,
+		TargetName:      targetSecretName,
+		Reclaim:         reclaim,
+		MatchNames:      targetNamespaces,
+	})
 }
 
 // createSecretCopier creates a SecretCopier with the given rules and waits
@@ -151,4 +201,15 @@ func eventuallyGetSecret(namespace, name string) *corev1.Secret {
 	}, secretCreatedTimeout).Should(Succeed())
 
 	return secret
+}
+
+// consistentlySecretAbsent asserts that, for a short window, the named secret
+// does not exist. Used for negative cases where the controller should not copy.
+func consistentlySecretAbsent(namespace, name string) {
+	GinkgoHelper()
+
+	Consistently(func() bool {
+		err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &corev1.Secret{})
+		return apierrors.IsNotFound(err)
+	}, 2*time.Second, 250*time.Millisecond).Should(BeTrue())
 }

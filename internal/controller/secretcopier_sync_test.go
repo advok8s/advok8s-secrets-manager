@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -76,6 +78,41 @@ var _ = Describe("SecretCopier keeping a target secret in sync", func() {
 				g.Expect(updated.Data).To(Equal(sourceSecret.Data))
 				g.Expect(updated.Labels).To(Equal(sourceSecret.Labels))
 			}, secretCreatedTimeout).Should(Succeed())
+		})
+	})
+
+	Context("when a secret with the target name already exists but is not managed by the copier", func() {
+		It("does not overwrite the unmanaged secret", func() {
+			createNamespace("guard-src")
+			createNamespace("guard-tgt")
+			createOpaqueSecret("guard-src", defaultSourceSecretName, map[string]string{"src": "data"}, nil)
+			// A pre-existing, unmanaged secret occupying the target name.
+			createOpaqueSecret("guard-tgt", defaultTargetSecretName, map[string]string{"pre": "existing"}, nil)
+
+			createSecretCopier("guard-copier",
+				nameSelectorRule("guard-src", defaultSourceSecretName, defaultTargetSecretName, "guard-tgt"))
+
+			// The unmanaged secret must be left untouched: its data is unchanged
+			// and it never gains the copier's tracking annotation.
+			Consistently(func(g Gomega) {
+				existing := &corev1.Secret{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{
+					Namespace: "guard-tgt",
+					Name:      defaultTargetSecretName,
+				}, existing)).To(Succeed())
+				g.Expect(existing.Data).To(HaveKeyWithValue("pre", []byte("existing")))
+				g.Expect(existing.Annotations).NotTo(HaveKey(annotationSecretCopier))
+			}, 2*time.Second, 250*time.Millisecond).Should(Succeed())
+		})
+	})
+
+	Context("when the source secret does not exist", func() {
+		It("does not create a target secret and does not error", func() {
+			createNamespace("missing-tgt")
+			createSecretCopier("missing-copier",
+				nameSelectorRule("missing-src-ns", "missing-secret", defaultTargetSecretName, "missing-tgt"))
+
+			consistentlySecretAbsent("missing-tgt", defaultTargetSecretName)
 		})
 	})
 })

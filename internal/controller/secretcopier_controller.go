@@ -40,6 +40,13 @@ type SecretCopierReconciler struct {
 	Scheme *runtime.Scheme
 }
 
+// Annotation keys stamped on copied secrets so the controller can recognise the
+// secrets it manages and which source secret they were copied from.
+const (
+	annotationSecretCopier = "secrets.advok8s.io/secret-copier"
+	annotationSecretName   = "secrets.advok8s.io/secret-name"
+)
+
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretcopiers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretcopiers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretcopiers/finalizers,verbs=update
@@ -388,8 +395,8 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 				Namespace: targetNamespace,
 				Labels:    targetSecretLabels,
 				Annotations: map[string]string{
-					"secrets.advok8s.io/secret-copier": secretCopier.Name,
-					"secrets.advok8s.io/secret-name":   sourceSecret.Namespace + "/" + sourceSecret.Name,
+					annotationSecretCopier: secretCopier.Name,
+					annotationSecretName:   sourceSecret.Namespace + "/" + sourceSecret.Name,
 				},
 				OwnerReferences: ownerReferences,
 			},
@@ -454,11 +461,11 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 // secret and by the same SecretCopier object. This is done by checking the
 // annotations on the target secret.
 func (r *SecretCopierReconciler) targetSecretManagedBySecretCopier(secretCopier *secretsv1beta1.SecretCopier, rule *secretsv1beta1.SecretCopierRule, targetSecret *corev1.Secret) bool {
-	if targetSecret.Annotations["secrets.advok8s.io/secret-copier"] != secretCopier.Name {
+	if targetSecret.Annotations[annotationSecretCopier] != secretCopier.Name {
 		return false
 	}
 
-	if targetSecret.Annotations["secrets.advok8s.io/secret-name"] != rule.SourceSecret.Namespace+"/"+rule.SourceSecret.Name {
+	if targetSecret.Annotations[annotationSecretName] != rule.SourceSecret.Namespace+"/"+rule.SourceSecret.Name {
 		return false
 	}
 
@@ -518,5 +525,5 @@ func (r *SecretCopierReconciler) sourceSecretHasBeenUpdated(rule *secretsv1beta1
 		return true
 	}
 
-	return !mapStringStringEqual(sourceSecret.Labels, targetSecretLabels)
+	return !mapStringStringEqual(targetSecret.Labels, targetSecretLabels)
 }
