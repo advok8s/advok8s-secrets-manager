@@ -29,6 +29,7 @@ Prerequisites: the CRDs installed (`make install`) and the operator running
 | [secretcopier-with-importer.yaml](secretcopier-with-importer.yaml) | A SecretCopier whose copy is gated by a matching SecretImporter (copyAuthorization). |
 | [secretexporter-basic.yaml](secretexporter-basic.yaml) | A namespaced SecretExporter exporting its like-named secret to a target namespace that consents via a SecretImporter; the importer owns the copy (deleting it garbage-collects the copy). |
 | [secretexporter-source-namespaces.yaml](secretexporter-source-namespaces.yaml) | A SecretImporter that further restricts which source namespaces it accepts, plus target renaming; one of two competing exporters is refused. |
+| [secretinjector-serviceaccount.yaml](secretinjector-serviceaccount.yaml) | A SecretInjector adding an image pull secret to a named (non-default) ServiceAccount's imagePullSecrets, leaving the default service account untouched. |
 
 Each file's header comment lists the exact apply / verify / clean-up commands
 for that scenario.
