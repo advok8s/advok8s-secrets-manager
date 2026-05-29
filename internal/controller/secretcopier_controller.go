@@ -19,9 +19,13 @@ package controller
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"maps"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
@@ -32,6 +36,25 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+)
+
+// copyOutcome is the result of attempting to copy a source secret into a single
+// target namespace.
+type copyOutcome int
+
+const (
+	// copyInSync means the target secret was created, updated, or already up to
+	// date.
+	copyInSync copyOutcome = iota
+	// copyConflict means a secret with the target name already exists but is
+	// owned by something else (a different SecretCopier, a different source, or
+	// not created by this operator) and so was left untouched.
+	copyConflict
+	// copyFailed means an API error occurred creating or updating the target.
+	copyFailed
+	// copySkipped means there was nothing to do (e.g. the target namespace is
+	// the source namespace).
+	copySkipped
 )
 
 // SecretCopierReconciler reconciles a SecretCopier object
@@ -131,38 +154,125 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	log.V(1).Info("Active namespaces", "namespaces", activeNamespaceNames)
 
 	// Iterate over the set of rules defined for the SecretCopier object and
-	// determine which target namespaces match the rule.
+	// determine which target namespaces match the rule, copying the source
+	// secret into each while accumulating an outcome summary for the status.
+	// The status records counts only, never the individual target namespaces,
+	// so its size is bounded by the number of rules rather than the size of the
+	// cluster.
 
-	for _, rule := range secretCopier.Spec.Rules {
-		targetNamespaces := make([]string, 0)
+	status := secretsv1beta1.SecretCopierStatus{
+		ObservedGeneration: secretCopier.Generation,
+		Conditions:         secretCopier.Status.Conditions, // seed so transition times are preserved
+	}
 
-		for _, namespace := range activeNamespaces {
-			if namespace.Name != rule.SourceSecret.Namespace && rule.TargetNamespaces.Matches(&namespace) {
-				log.V(1).Info("Matched target Namespace against SecretCopier", "name", req.NamespacedName, "rule", rule, "namespace", namespace.Name)
+	for i := range secretCopier.Spec.Rules {
+		rule := secretCopier.Spec.Rules[i]
 
-				targetNamespaces = append(targetNamespaces, namespace.Name)
-			}
+		ruleStatus := secretsv1beta1.RuleStatus{
+			SourceSecret: rule.SourceSecret.Namespace + "/" + rule.SourceSecret.Name,
 		}
 
-		// If there are no target namespaces that match the rule, there is
-		// nothing to do.
+		// Fetch the source secret once for the rule. If it does not exist there
+		// is nothing to copy; if it cannot be read that is a failure.
 
-		if len(targetNamespaces) == 0 {
-			log.V(1).Info("No target namespaces to process for SecretCopier", "name", req.NamespacedName, "rule", rule)
+		var source corev1.Secret
+
+		err := r.Get(ctx, client.ObjectKey{Namespace: rule.SourceSecret.Namespace, Name: rule.SourceSecret.Name}, &source)
+
+		switch {
+		case err != nil && client.IgnoreNotFound(err) == nil:
+			log.V(1).Info("Source secret does not exist", "sourceSecret", rule.SourceSecret)
+			status.Rules = append(status.Rules, ruleStatus)
+			continue
+		case err != nil:
+			log.Error(err, "Unable to fetch source secret", "sourceSecret", rule.SourceSecret)
+			ruleStatus.Failures++
+			status.Summary.Failures++
+			status.Rules = append(status.Rules, ruleStatus)
 			continue
 		}
 
-		log.V(1).Info("Target namespaces to process for SecretCopier", "name", req.NamespacedName, "rule", rule, "targetNamespaces", targetNamespaces)
+		ruleStatus.SourceExists = true
 
-		// Copy the source secret to each of the target namespaces that match
-		// the rule. The copy operation will check itself if the source secret
-		// exists and copy it if the target secret does not exist, or update it
-		// if it does and the source secret has changed.
+		for j := range activeNamespaces {
+			namespace := activeNamespaces[j]
 
-		for _, targetNamespace := range targetNamespaces {
-			if targetNamespace != rule.SourceSecret.Namespace {
-				r.copySecretToNamespace(ctx, &secretCopier, &rule, targetNamespace)
+			if namespace.Name == rule.SourceSecret.Namespace || !rule.TargetNamespaces.Matches(&namespace) {
+				continue
 			}
+
+			log.V(1).Info("Matched target Namespace against SecretCopier", "name", req.NamespacedName, "rule", rule, "namespace", namespace.Name)
+
+			ruleStatus.TargetNamespaces++
+
+			switch r.copySecretToNamespace(ctx, &secretCopier, &rule, &source, namespace.Name) {
+			case copyInSync:
+				ruleStatus.SecretsInSync++
+			case copyConflict:
+				ruleStatus.Conflicts++
+			case copyFailed:
+				ruleStatus.Failures++
+			case copySkipped:
+			}
+		}
+
+		status.Summary.TargetNamespaces += ruleStatus.TargetNamespaces
+		status.Summary.SecretsInSync += ruleStatus.SecretsInSync
+		status.Summary.Conflicts += ruleStatus.Conflicts
+		status.Summary.Failures += ruleStatus.Failures
+		status.Rules = append(status.Rules, ruleStatus)
+	}
+
+	// Derive the resource conditions from the aggregate failure count, then
+	// write the status back, but only when it has actually changed so the
+	// periodic requeue below does not churn the resourceVersion every sync.
+
+	if status.Summary.Failures == 0 {
+		meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+			Type:               secretsv1beta1.ConditionReady,
+			Status:             metav1.ConditionTrue,
+			ObservedGeneration: secretCopier.Generation,
+			Reason:             "AllSecretsInSync",
+			Message:            fmt.Sprintf("%d secret(s) in sync across %d namespace match(es)", status.Summary.SecretsInSync, status.Summary.TargetNamespaces),
+		})
+		meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+			Type:               secretsv1beta1.ConditionDegraded,
+			Status:             metav1.ConditionFalse,
+			ObservedGeneration: secretCopier.Generation,
+			Reason:             "NoFailures",
+			Message:            "All copies succeeded",
+		})
+	} else {
+		meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+			Type:               secretsv1beta1.ConditionReady,
+			Status:             metav1.ConditionFalse,
+			ObservedGeneration: secretCopier.Generation,
+			Reason:             "CopyFailures",
+			Message:            fmt.Sprintf("%d copy failure(s)", status.Summary.Failures),
+		})
+		meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+			Type:               secretsv1beta1.ConditionDegraded,
+			Status:             metav1.ConditionTrue,
+			ObservedGeneration: secretCopier.Generation,
+			Reason:             "CopyFailures",
+			Message:            fmt.Sprintf("%d secret(s) could not be copied", status.Summary.Failures),
+		})
+	}
+
+	if !equality.Semantic.DeepEqual(secretCopier.Status, status) {
+		secretCopier.Status = status
+
+		if err := r.Status().Update(ctx, &secretCopier); err != nil {
+			if !apierrors.IsConflict(err) {
+				log.Error(err, "Unable to update SecretCopier status", "name", req.NamespacedName)
+				return ctrl.Result{}, err
+			}
+
+			// The object was modified by a concurrent reconcile. That pass saw
+			// the same cluster state and computed the same status, so the
+			// conflict is benign; fall through and requeue as normal.
+
+			log.V(1).Info("Conflict updating SecretCopier status; another reconcile won, continuing", "name", req.NamespacedName)
 		}
 	}
 
@@ -292,12 +402,13 @@ func (r *SecretCopierReconciler) findSecretCopiersMatchingTargetNamespace(ctx co
 	return requests
 }
 
-// Copy the source secret to the target namespace. The copy operation will check
-// itself if the source secret exists and copy it if the target secret does not
-// exist, or update it if it does and the source secret has changed. Also check
-// again that we are not trying to copy the secret to the same namespace it is
-// in.
-func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secretCopier *secretsv1beta1.SecretCopier, rule *secretsv1beta1.SecretCopierRule, targetNamespace string) {
+// Copy the source secret to the target namespace. The source secret has already
+// been fetched by the caller and is passed in as secret. The copy operation will
+// create the target secret if it does not exist, or update it if it does and the
+// source secret has changed. Also check again that we are not trying to copy the
+// secret to the same namespace it is in. The return value reports what happened
+// so the caller can summarise the outcome in the SecretCopier status.
+func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secretCopier *secretsv1beta1.SecretCopier, rule *secretsv1beta1.SecretCopierRule, secret *corev1.Secret, targetNamespace string) copyOutcome {
 	log := logf.FromContext(ctx)
 
 	// Check that we are not trying to copy the secret to the same namespace it
@@ -307,10 +418,10 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 
 	if sourceSecret.Namespace == targetNamespace {
 		log.V(1).Info("Skipping copy of secret to same namespace", "sourceSecret", sourceSecret, "targetNamespace", targetNamespace)
-		return
+		return copySkipped
 	}
 
-	// Fetch the source secret.
+	// Determine the target secret name, defaulting to the source secret name.
 
 	targetSecretName := rule.TargetSecret.Name
 
@@ -318,38 +429,18 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 		targetSecretName = sourceSecret.Name
 	}
 
-	var secret corev1.Secret
-
-	err := r.Get(ctx, client.ObjectKey{Namespace: sourceSecret.Namespace, Name: sourceSecret.Name}, &secret)
-
-	if err != nil {
-		if client.IgnoreNotFound(err) == nil {
-			// Source secret does not exist, so there is nothing to do.
-
-			log.V(1).Info("Source secret does not exist", "sourceSecret", sourceSecret)
-			return
-		}
-
-		// Error reading the source secret. Log the error and return.
-
-		log.Error(err, "Unable to fetch source secret", "sourceSecret", sourceSecret)
-		return
-	}
-
-	log.V(1).Info("Fetched source secret", "sourceSecret", sourceSecret)
-
 	// Fetch the target secret.
 
 	var targetSecret corev1.Secret
 
-	err = r.Get(ctx, client.ObjectKey{Namespace: targetNamespace, Name: targetSecretName}, &targetSecret)
+	err := r.Get(ctx, client.ObjectKey{Namespace: targetNamespace, Name: targetSecretName}, &targetSecret)
 
 	if err != nil {
 		if client.IgnoreNotFound(err) != nil {
 			// Error reading the target secret. Log the error and return.
 
 			log.Error(err, "Unable to fetch target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
-			return
+			return copyFailed
 		}
 	}
 
@@ -410,21 +501,22 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 
 		if err != nil {
 			log.Error(err, "Unable to create target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
-			return
+			return copyFailed
 		}
 
 		log.V(1).Info("Created target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
 
-		return
+		return copyInSync
 	}
 
 	// Check that the target secret is managed by the SecretCopier object and
-	// was created from the same source secret originally. If it is not, don't
-	// update it.
+	// was created from the same source secret originally. If it is not, a
+	// foreign secret already owns the target name, so leave it untouched and
+	// report a conflict.
 
 	if !r.targetSecretManagedBySecretCopier(secretCopier, rule, &targetSecret) {
 		log.V(1).Info("Skipping update of target secret as not managed by SecretCopier", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
-		return
+		return copyConflict
 	}
 
 	// If the target secret exists, check if it is different to the source
@@ -432,7 +524,7 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 	// the source secret, overlaid with any additional labels specified in the
 	// rule for the target secret.
 
-	if r.sourceSecretHasBeenUpdated(rule, &secret, &targetSecret) {
+	if r.sourceSecretHasBeenUpdated(rule, secret, &targetSecret) {
 		log.V(1).Info("Updating target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
 
 		targetSecretLabels := make(map[string]string)
@@ -450,11 +542,15 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 
 		if err != nil {
 			log.Error(err, "Unable to update target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
-			return
+			return copyFailed
 		}
 
 		log.V(1).Info("Updated target secret", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
 	}
+
+	// The target secret exists and was either updated or already up to date.
+
+	return copyInSync
 }
 
 // Verify that an existing target secret was originally created from the source

@@ -84,27 +84,94 @@ type SecretCopierSpec struct {
 	SyncPeriod *metav1.Duration `json:"syncPeriod,omitempty"`
 }
 
+// Condition types reported on a SecretCopier.
+const (
+	// ConditionReady is True when the last reconcile copied all matched
+	// secrets without error.
+	ConditionReady = "Ready"
+	// ConditionDegraded is True when one or more copies failed during the
+	// last reconcile.
+	ConditionDegraded = "Degraded"
+)
+
 // SecretCopierStatus defines the observed state of SecretCopier.
 type SecretCopierStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// observedGeneration is the .metadata.generation last processed by the
+	// controller. When it is less than .metadata.generation the status does
+	// not yet reflect the current spec.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// conditions represent the current state of the SecretCopier resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
+	// Each condition has a unique type and reflects the status of a specific
+	// aspect of the resource. The status of each condition is one of True,
+	// False, or Unknown.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// summary holds aggregate counts across all rules from the last reconcile.
+	// +optional
+	Summary SecretCopierSummary `json:"summary,omitempty"`
+
+	// rules summarises the outcome of each rule, one entry per rule in spec
+	// order. It records counts only - never the individual target namespaces -
+	// so its size is bounded by the number of rules, not the size of the
+	// cluster.
+	// +optional
+	Rules []RuleStatus `json:"rules,omitempty"`
+}
+
+// SecretCopierSummary holds aggregate counts across all rules.
+type SecretCopierSummary struct {
+	// targetNamespaces is the total number of (rule, namespace) matches across
+	// all rules. A namespace matched by two rules counts twice.
+	// +optional
+	TargetNamespaces int `json:"targetNamespaces"`
+
+	// secretsInSync is the number of target secrets confirmed present and up to
+	// date after the last reconcile.
+	// +optional
+	SecretsInSync int `json:"secretsInSync"`
+
+	// conflicts is the number of target secret names that already existed and
+	// are owned by something else (a different SecretCopier, a different source,
+	// or not created by this operator at all) and so were left untouched.
+	// +optional
+	Conflicts int `json:"conflicts"`
+
+	// failures is the number of target secrets that could not be created or
+	// updated during the last reconcile.
+	// +optional
+	Failures int `json:"failures"`
+}
+
+// RuleStatus summarises the outcome of a single rule.
+type RuleStatus struct {
+	// sourceSecret identifies the rule's source secret as "namespace/name".
+	SourceSecret string `json:"sourceSecret"`
+
+	// sourceExists is whether the source secret was found this reconcile.
+	SourceExists bool `json:"sourceExists"`
+
+	// targetNamespaces is the number of namespaces this rule matched.
+	// +optional
+	TargetNamespaces int `json:"targetNamespaces"`
+
+	// secretsInSync is the number of target secrets in sync for this rule.
+	// +optional
+	SecretsInSync int `json:"secretsInSync"`
+
+	// conflicts is the number of target secret names matched by this rule that
+	// are owned by something else and so were left untouched.
+	// +optional
+	Conflicts int `json:"conflicts"`
+
+	// failures is the number of target secrets that could not be copied for
+	// this rule.
+	// +optional
+	Failures int `json:"failures"`
 }
 
 // +kubebuilder:object:root=true

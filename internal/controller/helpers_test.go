@@ -29,6 +29,9 @@ package controller
 //   secretcopier_selectors_test.go       - selecting target namespaces
 //   secretcopier_multirule_test.go       - multiple rules / namespaces
 //   secretcopier_syncperiod_test.go      - requeue-after behaviour
+//   secretcopier_status_test.go          - observed state written to .status
+//                                          (observedGeneration, conditions,
+//                                          summary / per-rule counts)
 //   secretcopier_reconcile_logic_test.go - pure-function unit tests
 //
 // New behaviour areas should each get their own secretcopier_<behaviour>_test.go
