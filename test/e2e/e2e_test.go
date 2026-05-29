@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -270,6 +271,200 @@ var _ = Describe("Manager", Ordered, func() {
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
 
+		// These specs exercise behaviour that only a real cluster provides and
+		// that the in-process (envtest) controller tests cannot: the garbage
+		// collector acting on owner references, RBAC enforcement against the
+		// deployed operator's service account (every operation below fails if a
+		// permission is missing), and the auto-created default service account.
+		Context("distributing secrets across namespaces", func() {
+			It("copies a secret and garbage-collects it when the SecretCopier is deleted", func() {
+				DeferCleanup(func() {
+					_, _ = utils.Run(exec.Command("kubectl", "delete", "secretcopier", "e2e-copier", "--ignore-not-found"))
+					_, _ = utils.Run(exec.Command("kubectl", "delete", "ns", "e2e-copy-src", "e2e-copy-tgt", "--ignore-not-found"))
+				})
+
+				By("applying a source secret and a SecretCopier with reclaimPolicy Delete")
+				applyYAML(`
+apiVersion: v1
+kind: Namespace
+metadata: {name: e2e-copy-src}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: e2e-copy-tgt}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: e2e-cred, namespace: e2e-copy-src}
+type: Opaque
+stringData: {token: secret-value}
+---
+apiVersion: secrets.advok8s.io/v1beta1
+kind: SecretCopier
+metadata: {name: e2e-copier}
+spec:
+  rules:
+  - sourceSecret: {name: e2e-cred, namespace: e2e-copy-src}
+    targetNamespaces:
+      nameSelector: {matchNames: ["e2e-copy-tgt"]}
+    reclaimPolicy: Delete
+`)
+
+				By("waiting for the copy to appear in the target namespace")
+				Eventually(func(g Gomega) {
+					out, err := kubectlGet("secret", "e2e-cred", "-n", "e2e-copy-tgt", "-o", "jsonpath={.metadata.name}")
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(out).To(Equal("e2e-cred"))
+				}).Should(Succeed())
+
+				By("deleting the SecretCopier and expecting the garbage collector to remove the copy")
+				_, err := utils.Run(exec.Command("kubectl", "delete", "secretcopier", "e2e-copier"))
+				Expect(err).NotTo(HaveOccurred())
+				Eventually(func(g Gomega) {
+					_, err := kubectlGet("secret", "e2e-cred", "-n", "e2e-copy-tgt", "-o", "name")
+					g.Expect(err).To(HaveOccurred(), "copy should have been garbage-collected")
+				}).Should(Succeed())
+			})
+
+			It("retains the copy when the SecretCopier is deleted with reclaimPolicy Retain", func() {
+				DeferCleanup(func() {
+					_, _ = utils.Run(exec.Command("kubectl", "delete", "ns", "e2e-retain-src", "e2e-retain-tgt", "--ignore-not-found"))
+				})
+
+				By("applying a source secret and a SecretCopier with reclaimPolicy Retain")
+				applyYAML(`
+apiVersion: v1
+kind: Namespace
+metadata: {name: e2e-retain-src}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: e2e-retain-tgt}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: e2e-keep, namespace: e2e-retain-src}
+type: Opaque
+stringData: {token: secret-value}
+---
+apiVersion: secrets.advok8s.io/v1beta1
+kind: SecretCopier
+metadata: {name: e2e-retain-copier}
+spec:
+  rules:
+  - sourceSecret: {name: e2e-keep, namespace: e2e-retain-src}
+    targetNamespaces:
+      nameSelector: {matchNames: ["e2e-retain-tgt"]}
+    reclaimPolicy: Retain
+`)
+
+				Eventually(func(g Gomega) {
+					out, err := kubectlGet("secret", "e2e-keep", "-n", "e2e-retain-tgt", "-o", "jsonpath={.metadata.name}")
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(out).To(Equal("e2e-keep"))
+				}).Should(Succeed())
+
+				By("deleting the SecretCopier and confirming the copy survives")
+				_, err := utils.Run(exec.Command("kubectl", "delete", "secretcopier", "e2e-retain-copier"))
+				Expect(err).NotTo(HaveOccurred())
+				Consistently(func(g Gomega) {
+					out, err := kubectlGet("secret", "e2e-keep", "-n", "e2e-retain-tgt", "-o", "jsonpath={.metadata.name}")
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(out).To(Equal("e2e-keep"))
+				}, 10*time.Second, time.Second).Should(Succeed())
+			})
+
+			It("injects a secret reference into the namespace's default service account", func() {
+				DeferCleanup(func() {
+					_, _ = utils.Run(exec.Command("kubectl", "delete", "secretinjector", "e2e-injector", "--ignore-not-found"))
+					_, _ = utils.Run(exec.Command("kubectl", "delete", "ns", "e2e-inject", "--ignore-not-found"))
+				})
+
+				By("applying a secret and a SecretInjector with no service account selector")
+				applyYAML(`
+apiVersion: v1
+kind: Namespace
+metadata: {name: e2e-inject}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: e2e-inject-cred, namespace: e2e-inject}
+type: Opaque
+stringData: {token: secret-value}
+---
+apiVersion: secrets.advok8s.io/v1beta1
+kind: SecretInjector
+metadata: {name: e2e-injector}
+spec:
+  rules:
+  - sourceSecrets:
+      nameSelector: {matchNames: ["e2e-inject-cred"]}
+    targetNamespaces:
+      nameSelector: {matchNames: ["e2e-inject"]}
+`)
+
+				By("waiting for the reference to be injected into the default service account")
+				Eventually(func(g Gomega) {
+					out, err := kubectlGet("serviceaccount", "default", "-n", "e2e-inject", "-o", "jsonpath={.secrets[*].name}")
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(out).To(ContainSubstring("e2e-inject-cred"))
+				}).Should(Succeed())
+			})
+
+			It("exports a secret to an importer and garbage-collects it when the importer is deleted", func() {
+				DeferCleanup(func() {
+					_, _ = utils.Run(exec.Command("kubectl", "delete", "ns", "e2e-exp-src", "e2e-exp-tgt", "--ignore-not-found"))
+				})
+
+				By("applying a source secret, a SecretImporter and a matching SecretExporter")
+				applyYAML(`
+apiVersion: v1
+kind: Namespace
+metadata: {name: e2e-exp-src}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: e2e-exp-tgt}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: e2e-exported, namespace: e2e-exp-src}
+type: Opaque
+stringData: {token: secret-value}
+---
+apiVersion: secrets.advok8s.io/v1beta1
+kind: SecretImporter
+metadata: {name: e2e-exported, namespace: e2e-exp-tgt}
+spec:
+  copyAuthorization: {sharedSecret: e2e-shared}
+---
+apiVersion: secrets.advok8s.io/v1beta1
+kind: SecretExporter
+metadata: {name: e2e-exported, namespace: e2e-exp-src}
+spec:
+  rules:
+  - targetNamespaces:
+      nameSelector: {matchNames: ["e2e-exp-tgt"]}
+    copyAuthorization: {sharedSecret: e2e-shared}
+`)
+
+				By("waiting for the copy to appear owned by the SecretImporter")
+				Eventually(func(g Gomega) {
+					out, err := kubectlGet("secret", "e2e-exported", "-n", "e2e-exp-tgt", "-o", "jsonpath={.metadata.ownerReferences[0].kind}")
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(out).To(Equal("SecretImporter"))
+				}).Should(Succeed())
+
+				By("deleting the SecretImporter and expecting the copy to be garbage-collected")
+				_, err := utils.Run(exec.Command("kubectl", "delete", "secretimporter", "e2e-exported", "-n", "e2e-exp-tgt"))
+				Expect(err).NotTo(HaveOccurred())
+				Eventually(func(g Gomega) {
+					_, err := kubectlGet("secret", "e2e-exported", "-n", "e2e-exp-tgt", "-o", "name")
+					g.Expect(err).To(HaveOccurred(), "copy should have been garbage-collected with the importer")
+				}).Should(Succeed())
+			})
+		})
+
 		// TODO: Customize the e2e test suite with scenarios specific to your project.
 		// Consider applying sample/CR(s) and check their status and/or verifying
 		// the reconciliation by using the metrics, i.e.:
@@ -281,6 +476,20 @@ var _ = Describe("Manager", Ordered, func() {
 		// ))
 	})
 })
+
+// applyYAML applies the given manifest(s) to the cluster via "kubectl apply -f -".
+func applyYAML(manifest string) {
+	GinkgoHelper()
+	cmd := exec.Command("kubectl", "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(manifest)
+	_, err := utils.Run(cmd)
+	Expect(err).NotTo(HaveOccurred(), "kubectl apply failed")
+}
+
+// kubectlGet runs "kubectl get" with the given arguments and returns its output.
+func kubectlGet(args ...string) (string, error) {
+	return utils.Run(exec.Command("kubectl", append([]string{"get"}, args...)...))
+}
 
 // serviceAccountToken returns a token for the specified service account in the given namespace.
 // It uses the Kubernetes TokenRequest API to generate a token by directly sending a request
