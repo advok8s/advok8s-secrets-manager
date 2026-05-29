@@ -16,7 +16,7 @@ limitations under the License.
 
 // Package v1beta1 contains API Schema definitions for the secrets v1beta1 API group.
 // +kubebuilder:object:generate=true
-// +groupName=secrets-manager.advok8s.io
+// +groupName=secrets.advok8s.io
 package v1beta1
 
 import (
@@ -27,7 +27,7 @@ import (
 var (
 	// SchemeGroupVersion is group version used to register these objects.
 	// This name is used by applyconfiguration generators (e.g. controller-gen).
-	SchemeGroupVersion = schema.GroupVersion{Group: "secrets-manager.advok8s.io", Version: "v1beta1"}
+	SchemeGroupVersion = schema.GroupVersion{Group: "secrets.advok8s.io", Version: "v1beta1"}
 
 	// GroupVersion is an alias for SchemeGroupVersion, for backward compatibility.
 	GroupVersion = SchemeGroupVersion

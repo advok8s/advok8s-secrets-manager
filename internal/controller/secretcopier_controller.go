@@ -39,9 +39,9 @@ type SecretCopierReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=secrets-manager.advok8s.io,resources=secretcopiers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=secrets-manager.advok8s.io,resources=secretcopiers/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=secrets-manager.advok8s.io,resources=secretcopiers/finalizers,verbs=update
+// +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretcopiers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretcopiers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretcopiers/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -391,8 +391,8 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 				Namespace: targetNamespace,
 				Labels:    targetSecretLabels,
 				Annotations: map[string]string{
-					"secrets-manager.advok8s.io/secret-copier": secretCopier.Name,
-					"secrets-manager.advok8s.io/secret-name":   sourceSecret.Namespace + "/" + sourceSecret.Name,
+					"secrets.advok8s.io/secret-copier": secretCopier.Name,
+					"secrets.advok8s.io/secret-name":   sourceSecret.Namespace + "/" + sourceSecret.Name,
 				},
 				OwnerReferences: ownerReferences,
 			},
@@ -461,11 +461,11 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 // secret and by the same SecretCopier object. This is done by checking the
 // annotations on the target secret.
 func (r *SecretCopierReconciler) targetSecretManagedBySecretCopier(secretCopier *secretsv1beta1.SecretCopier, rule *secretsv1beta1.SecretCopierRule, targetSecret *corev1.Secret) bool {
-	if targetSecret.Annotations["secrets-manager.advok8s.io/secret-copier"] != secretCopier.Name {
+	if targetSecret.Annotations["secrets.advok8s.io/secret-copier"] != secretCopier.Name {
 		return false
 	}
 
-	if targetSecret.Annotations["secrets-manager.advok8s.io/secret-name"] != rule.SourceSecret.Namespace+"/"+rule.SourceSecret.Name {
+	if targetSecret.Annotations["secrets.advok8s.io/secret-name"] != rule.SourceSecret.Namespace+"/"+rule.SourceSecret.Name {
 		return false
 	}
 
