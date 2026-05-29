@@ -42,6 +42,17 @@ type TargetSecret struct {
 	Labels map[string]string `json:"labels,omitempty"`
 }
 
+// CopyAuthorization gates copying a secret into a target namespace on a
+// SecretImporter in that namespace carrying a matching shared secret. It is the
+// handshake that lets the owner of a target namespace consent to receiving a
+// copy: without a matching SecretImporter the copy is not made. The same shape
+// is used by SecretExporter.
+type CopyAuthorization struct {
+	// SharedSecret must match the sharedSecret of the SecretImporter (named the
+	// same as the target secret) in the target namespace before a copy is made.
+	SharedSecret string `json:"sharedSecret,omitempty"`
+}
+
 // Reclaim policy for copied secret.
 // +kubebuilder:validation:Enum=Delete;Retain
 type ReclaimPolicy string
@@ -61,6 +72,11 @@ type SecretCopierRule struct {
 
 	// Target secret to copy to.
 	TargetSecret TargetSecret `json:"targetSecret,omitempty"`
+
+	// CopyAuthorization, when set, requires a matching SecretImporter in the
+	// target namespace before the secret is copied there.
+	// +optional
+	CopyAuthorization CopyAuthorization `json:"copyAuthorization,omitempty"`
 
 	// Reclaim policy for copied secret.
 	// +kubebuilder:default=Delete
@@ -141,6 +157,12 @@ type SecretCopierSummary struct {
 	// +optional
 	Conflicts int `json:"conflicts"`
 
+	// awaitingAuthorization is the number of (rule, namespace) matches whose
+	// copyAuthorization was not satisfied (no matching SecretImporter, or a
+	// mismatched shared secret) and so were not copied.
+	// +optional
+	AwaitingAuthorization int `json:"awaitingAuthorization"`
+
 	// failures is the number of target secrets that could not be created or
 	// updated during the last reconcile.
 	// +optional
@@ -167,6 +189,11 @@ type RuleStatus struct {
 	// are owned by something else and so were left untouched.
 	// +optional
 	Conflicts int `json:"conflicts"`
+
+	// awaitingAuthorization is the number of namespaces matched by this rule
+	// whose copyAuthorization was not satisfied and so were not copied.
+	// +optional
+	AwaitingAuthorization int `json:"awaitingAuthorization"`
 
 	// failures is the number of target secrets that could not be copied for
 	// this rule.

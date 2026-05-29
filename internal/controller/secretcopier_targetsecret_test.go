@@ -50,7 +50,7 @@ var _ = Describe("SecretCopier shaping the target secret", func() {
 			// Source labels overlaid with rule labels (rule wins on "env").
 			Expect(target.Labels).To(Equal(map[string]string{"env": "override", "managed-by": "advok8s"}))
 			// Tracking annotations.
-			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedBy, "shape-copier"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedBy, "secretcopier/shape-copier"))
 			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationSourceSecret, "shape-src/original-name"))
 
 			// The source secret itself is left untouched.

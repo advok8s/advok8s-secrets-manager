@@ -5,9 +5,31 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - secrets.advok8s.io
   resources:
   - secretcopiers
+  - secretexporters
+  - secretimporters
   verbs:
   - create
   - delete
@@ -20,12 +42,16 @@ rules:
   - secrets.advok8s.io
   resources:
   - secretcopiers/finalizers
+  - secretexporters/finalizers
+  - secretimporters/finalizers
   verbs:
   - update
 - apiGroups:
   - secrets.advok8s.io
   resources:
   - secretcopiers/status
+  - secretexporters/status
+  - secretimporters/status
   verbs:
   - get
   - patch

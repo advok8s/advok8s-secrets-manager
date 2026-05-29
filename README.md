@@ -12,8 +12,8 @@ operator. It copies and distributes Kubernetes Secrets across namespaces, and
 will additionally inject and import/export them as the remaining resources are
 ported.
 
-**Implemented so far:** `SecretCopier`. Planned: `SecretExporter`,
-`SecretImporter`, `SecretInjector`.
+**Implemented so far:** `SecretCopier`, `SecretExporter`, `SecretImporter`.
+Planned: `SecretInjector`.
 
 The custom resources are functionally equivalent to the originals, so their
 behaviour is documented authoritatively by the Educates project rather than

@@ -22,8 +22,9 @@ and the plan for adding them, see the porting plan kept alongside the repository
 - **API group** is `secrets.advok8s.io` (not `secrets.educates.dev`). The
   version is `v1beta1`.
 - **Tracking annotations** on copied secrets follow the same rename:
-  `secrets.advok8s.io/secret-copier` and `secrets.advok8s.io/secret-name`
-  (not the `secrets.educates.dev/...` equivalents).
+  `secrets.advok8s.io/copier-rule` (value `kind/name`, e.g. `secretcopier/x` or
+  `secretexporter/y`) and `secrets.advok8s.io/secret-name` (value
+  `namespace/name` of the source) — the `secrets.educates.dev/...` equivalents.
 
 Because the group differs, secrets copied by the Educates operator are not
 recognised as managed by this one, and vice versa. This matters only if both
@@ -49,11 +50,43 @@ populates it (see `kubectl explain secretcopier.status` for the field list):
 - `observedGeneration`,
 - `Ready` / `Degraded` conditions,
 - a `summary` block (matched target namespaces, secrets in sync, conflicts,
-  failures),
+  awaiting authorization, failures),
 - per-rule status.
+
+## SecretExporter
+
+Behaviourally equivalent to the Educates resource (the exporter's own name is the
+source secret; each copy requires a paired SecretImporter, which becomes the
+copy's owner; an omitted shared secret defaults to the exporter's UID).
+
+### Added: `spec.syncPeriod` and populated `status`
+
+As for SecretCopier: a configurable `syncPeriod` (default `1m`, `"0s"` to
+disable), and a populated `status` (`observedGeneration`, `Ready`/`Degraded`
+conditions, `sourceExists`, and summary / per-rule counts including
+`awaitingAuthorization`). The Educates implementation leaves status unmanaged.
+
+## SecretImporter
+
+Behaviourally equivalent: it performs no copying, only authorizing a paired
+SecretExporter or SecretCopier (named the same as the target secret, with a
+matching shared secret, and an optional source-namespace restriction).
+
+### Added: populated `status`
+
+The Educates implementation leaves status unmanaged. This implementation runs a
+status-only reconciler that reports `observedGeneration`, a `Ready` condition
+(reason `Imported`, `AwaitingAuthorization`, or `NoMatchingExporter`),
+`imported`, `boundTo` (what is exporting the secret), and `targetSecretName`.
+
+### Removed: `spec.sourceSecret`
+
+The Educates `SecretImporter` CRD declares a `sourceSecret.name` field, but the
+Python controller never reads it — it appears to be a copy-paste leftover. This
+implementation omits it. Authorization keys off the importer's name, shared
+secret, and source-namespace selector.
 
 ## Not yet implemented
 
-`SecretExporter`, `SecretImporter`, and `SecretInjector` are not yet ported. When
-they land, their differences (including the `copyAuthorization` handshake and
-their own status fields) will be recorded here.
+`SecretInjector` is not yet ported. When it lands, its differences and status
+fields will be recorded here.

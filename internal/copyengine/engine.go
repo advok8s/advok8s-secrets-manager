@@ -62,9 +62,11 @@ const (
 // secrets it manages and which source secret they were copied from.
 const (
 	// AnnotationManagedBy records which copy rule owns the target secret. Its
-	// value is supplied by the caller (Request.ManagedByValue) so the same key
-	// can identify copies made by different custom resources.
-	AnnotationManagedBy = "secrets.advok8s.io/secret-copier"
+	// value is supplied by the caller (Request.ManagedByValue) as "kind/name"
+	// (e.g. "secretcopier/x" or "secretexporter/y") so the same key identifies
+	// copies made by different custom resources without them fighting over a
+	// shared target name.
+	AnnotationManagedBy = "secrets.advok8s.io/copier-rule"
 	// AnnotationSourceSecret records the "namespace/name" of the source secret
 	// the target was copied from.
 	AnnotationSourceSecret = "secrets.advok8s.io/secret-name"

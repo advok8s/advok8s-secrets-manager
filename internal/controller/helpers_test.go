@@ -197,6 +197,76 @@ func createSecretCopier(name string, rules ...secretsv1beta1.SecretCopierRule) *
 	return secretCopier
 }
 
+// nameTargetNamespaces builds a TargetNamespaces selecting by exact name. The
+// matchUids and matchOwners fields are required by the CRD schema, so they are
+// always emitted as non-nil (empty) slices even when unused.
+func nameTargetNamespaces(names ...string) selectors.TargetNamespaces {
+	if names == nil {
+		names = []string{}
+	}
+
+	return selectors.TargetNamespaces{
+		NameSelector:  selectors.NameSelector{MatchNames: names},
+		UIDSelector:   selectors.UIDSelector{MatchUids: []string{}},
+		OwnerSelector: selectors.OwnerSelector{MatchOwners: []selectors.OwnerReference{}},
+	}
+}
+
+// exporterRule builds a SecretExporterRule selecting target namespaces by name,
+// with the given target secret name (empty defaults to the exporter name) and
+// shared secret (empty leaves copyAuthorization unset, defaulting to the
+// exporter UID).
+func exporterRule(targetName, sharedSecret string, targetNamespaces ...string) secretsv1beta1.SecretExporterRule {
+	return secretsv1beta1.SecretExporterRule{
+		TargetNamespaces:  nameTargetNamespaces(targetNamespaces...),
+		TargetSecret:      secretsv1beta1.TargetSecret{Name: targetName},
+		CopyAuthorization: secretsv1beta1.CopyAuthorization{SharedSecret: sharedSecret},
+	}
+}
+
+// createSecretExporter creates a SecretExporter and waits until it can be read
+// back (so its UID is populated).
+func createSecretExporter(namespace, name string, rules ...secretsv1beta1.SecretExporterRule) *secretsv1beta1.SecretExporter {
+	GinkgoHelper()
+
+	exporter := &secretsv1beta1.SecretExporter{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec:       secretsv1beta1.SecretExporterSpec{Rules: rules},
+	}
+	Expect(k8sClient.Create(ctx, exporter)).To(Succeed())
+
+	Eventually(func() error {
+		return k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, exporter)
+	}).Should(Succeed())
+
+	return exporter
+}
+
+// createSecretImporter creates a SecretImporter with the given shared secret and
+// optional source-namespace name selector, and waits until it can be read back.
+func createSecretImporter(namespace, name, sharedSecret string, sourceNamespaceNames ...string) *secretsv1beta1.SecretImporter {
+	GinkgoHelper()
+
+	importer := &secretsv1beta1.SecretImporter{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec: secretsv1beta1.SecretImporterSpec{
+			CopyAuthorization: secretsv1beta1.CopyAuthorization{SharedSecret: sharedSecret},
+		},
+	}
+	if len(sourceNamespaceNames) > 0 {
+		importer.Spec.SourceNamespaces = &secretsv1beta1.ImporterSourceNamespaces{
+			NameSelector: selectors.NameSelector{MatchNames: sourceNamespaceNames},
+		}
+	}
+	Expect(k8sClient.Create(ctx, importer)).To(Succeed())
+
+	Eventually(func() error {
+		return k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, importer)
+	}).Should(Succeed())
+
+	return importer
+}
+
 // eventuallyGetSecret waits for the named secret to exist and returns it.
 func eventuallyGetSecret(namespace, name string) *corev1.Secret {
 	GinkgoHelper()

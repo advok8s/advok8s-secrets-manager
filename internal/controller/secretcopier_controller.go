@@ -46,6 +46,9 @@ type SecretCopierReconciler struct {
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretcopiers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretcopiers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretcopiers/finalizers,verbs=update
+// +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretimporters,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -177,17 +180,18 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				ruleStatus.SecretsInSync++
 			case copyengine.Conflict:
 				ruleStatus.Conflicts++
+			case copyengine.AwaitingAuthorization:
+				ruleStatus.AwaitingAuthorization++
 			case copyengine.Failed:
 				ruleStatus.Failures++
-			case copyengine.Skipped, copyengine.AwaitingAuthorization:
-				// SecretCopier does not gate copies on authorization, so it never
-				// produces AwaitingAuthorization. Skipped copies are not counted.
+			case copyengine.Skipped:
 			}
 		}
 
 		status.Summary.TargetNamespaces += ruleStatus.TargetNamespaces
 		status.Summary.SecretsInSync += ruleStatus.SecretsInSync
 		status.Summary.Conflicts += ruleStatus.Conflicts
+		status.Summary.AwaitingAuthorization += ruleStatus.AwaitingAuthorization
 		status.Summary.Failures += ruleStatus.Failures
 		status.Rules = append(status.Rules, ruleStatus)
 	}
@@ -388,6 +392,19 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 		targetSecretName = sourceSecret.Name
 	}
 
+	// Resolve any SecretImporter gating the copy into the target namespace. A
+	// SecretCopier owns its own copies, so the importer here only authorizes the
+	// copy (its shared secret and source-namespace constraints); it does not
+	// become the owner. With no copyAuthorization and no importer present this
+	// is a no-op that authorizes the copy.
+
+	_, authorized, err := authorizeCopyTarget(ctx, r.Client, targetNamespace, targetSecretName, sourceSecret.Namespace, rule.CopyAuthorization.SharedSecret)
+
+	if err != nil {
+		logf.FromContext(ctx).Error(err, "Unable to read SecretImporter for copy authorization", "targetSecret", targetSecretName, "targetNamespace", targetNamespace)
+		return copyengine.Failed
+	}
+
 	// When the reclaim policy is Delete, make the SecretCopier the owner of the
 	// copy so the garbage collector removes it when the SecretCopier is deleted.
 
@@ -413,7 +430,8 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 		TargetNamespace: targetNamespace,
 		TargetName:      targetSecretName,
 		TargetLabels:    rule.TargetSecret.Labels,
-		ManagedByValue:  secretCopier.Name,
+		ManagedByValue:  "secretcopier/" + secretCopier.Name,
 		OwnerReferences: ownerReferences,
+		Authorize:       func(context.Context) bool { return authorized },
 	})
 }
