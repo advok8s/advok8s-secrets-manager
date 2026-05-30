@@ -69,6 +69,13 @@ func (r *SecretInjectorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
+	// Being deleted: there are no finalizers and nothing to clean up (injections
+	// are additive and left in place), so skip rather than do work and fight the
+	// deletion with a status update.
+	if !injector.DeletionTimestamp.IsZero() {
+		return ctrl.Result{}, nil
+	}
+
 	status := secretsv1beta1.SecretInjectorStatus{
 		ObservedGeneration: injector.Generation,
 		Conditions:         injector.Status.Conditions,

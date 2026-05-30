@@ -85,8 +85,14 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		// resolve themselves on the next reconciliation loop.
 
 		log.Error(err, "Unable to fetch SecretCopier", "name", req.NamespacedName)
-
 		return ctrl.Result{}, err
+	}
+
+	// Being deleted: there are no finalizers and copies are garbage-collected via
+	// owner references, so there is nothing to do; skip rather than do work and
+	// fight the deletion with a status update.
+	if !secretCopier.DeletionTimestamp.IsZero() {
+		return ctrl.Result{}, nil
 	}
 
 	log.V(1).Info("Fetched SecretCopier", "secretCopier", &secretCopier)

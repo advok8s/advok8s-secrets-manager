@@ -72,6 +72,13 @@ func (r *SecretExporterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
+	// Being deleted: there are no finalizers and copies are garbage-collected via
+	// their SecretImporter owners, so there is nothing to do; skip rather than do
+	// work and fight the deletion with a status update.
+	if !exporter.DeletionTimestamp.IsZero() {
+		return ctrl.Result{}, nil
+	}
+
 	status := secretsv1beta1.SecretExporterStatus{
 		ObservedGeneration: exporter.Generation,
 		Conditions:         exporter.Status.Conditions,

@@ -69,6 +69,13 @@ func (r *SecretImporterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
+	// Being deleted: this reconciler only reports status and registers no
+	// finalizers, so there is nothing to do; skip rather than fight the deletion
+	// with a status update.
+	if !importer.DeletionTimestamp.IsZero() {
+		return ctrl.Result{}, nil
+	}
+
 	// The importer manages the secret named the same as itself, in its own
 	// namespace.
 
