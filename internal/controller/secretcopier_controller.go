@@ -124,9 +124,11 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// them for debugging.
 
 	activeNamespaceNames := make([]string, 0)
+	activeNamespaceSet := make(map[string]struct{}, len(activeNamespaces))
 
 	for _, namespace := range activeNamespaces {
 		activeNamespaceNames = append(activeNamespaceNames, namespace.Name)
+		activeNamespaceSet[namespace.Name] = struct{}{}
 	}
 
 	log.V(1).Info("Active namespaces", "namespaces", activeNamespaceNames)
@@ -150,6 +152,18 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			SourceSecret: rule.SourceSecret.Namespace + "/" + rule.SourceSecret.Name,
 		}
 
+		// If the source namespace is terminating or gone it has been filtered out
+		// of the active set. The source secret is therefore being torn down with
+		// it, so skip without fetching: there is nothing to copy, and we must not
+		// copy from a source secret that still lingers in a terminating namespace.
+		// The rule is still recorded with sourceExists=false so the status
+		// reflects that the source is gone.
+
+		if _, active := activeNamespaceSet[rule.SourceSecret.Namespace]; !active {
+			status.Rules = append(status.Rules, ruleStatus)
+			continue
+		}
+
 		// Fetch the source secret once for the rule. If it does not exist there
 		// is nothing to copy; if it cannot be read that is a failure.
 
@@ -159,7 +173,10 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 		switch {
 		case err != nil && client.IgnoreNotFound(err) == nil:
-			log.V(1).Info("Source secret does not exist", "sourceSecret", rule.SourceSecret)
+			// The source secret does not exist. This is a normal, expected state
+			// (the source has not been created yet, or has been deleted), not an
+			// error, so it is not logged: the rule is recorded with
+			// sourceExists=false, which is where this is observable.
 			status.Rules = append(status.Rules, ruleStatus)
 			continue
 		case err != nil:
