@@ -170,6 +170,32 @@ secret = {"data": {"out": shout("hi")}}
 	}
 }
 
+func TestStarlarkKubeconfigRecipes(t *testing.T) {
+	in := sampleInputs()
+	in.ServiceAccount = &ResolvedServiceAccount{
+		Name: "deployer", Namespace: "app", Token: "tok",
+		ClusterServer: "https://api:6443", ClusterCACert: "CA",
+	}
+	script := `
+fromsa = kubeconfig.from_service_account(
+    serviceAccount = input.serviceAccount,
+    clusterName = "c", contextName = "ctx-sa",
+)
+built = kubeconfig.build(server = "https://b:6443", token = "t2", contextName = "ctx-build")
+secret = {"data": {"a": fromsa, "b": built}}
+`
+	result, err := NewStarlarkEngine(script).Render(in)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(result.Data["a"]), "ctx-sa") {
+		t.Errorf("from_service_account output missing its context:\n%s", result.Data["a"])
+	}
+	if !strings.Contains(string(result.Data["b"]), "ctx-build") {
+		t.Errorf("build output missing its context:\n%s", result.Data["b"])
+	}
+}
+
 // TestStarlarkLibraryCannotLoad confirms load() is a top-level-script facility
 // only: a library that itself calls load() fails, which makes load() cycles
 // impossible (no library can begin a load chain).

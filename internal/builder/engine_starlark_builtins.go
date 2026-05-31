@@ -383,10 +383,10 @@ func htpasswdModule() *starlarkstruct.Module {
 
 func kubeconfigModule() *starlarkstruct.Module {
 	return module("kubeconfig", starlark.StringDict{
-		"fromServiceAccount": starlark.NewBuiltin("kubeconfig.fromServiceAccount", func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		"from_service_account": starlark.NewBuiltin("kubeconfig.from_service_account", func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 			var sa starlark.Value
 			var clusterName, userName, contextName string
-			if err := starlark.UnpackArgs("kubeconfig.fromServiceAccount", args, kwargs,
+			if err := starlark.UnpackArgs("kubeconfig.from_service_account", args, kwargs,
 				"serviceAccount", &sa, "clusterName?", &clusterName, "userName?", &userName, "contextName?", &contextName); err != nil {
 				return nil, err
 			}
@@ -407,6 +407,21 @@ func kubeconfigModule() *starlarkstruct.Module {
 				return nil, err
 			}
 			out, err := KubeconfigFromServiceAccount(token, server, caCert, clusterName, userName, contextName)
+			if err != nil {
+				return nil, err
+			}
+			return starlark.String(out), nil
+		}),
+		"build": starlark.NewBuiltin("kubeconfig.build", func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+			var p KubeconfigParams
+			if err := starlark.UnpackArgs("kubeconfig.build", args, kwargs,
+				"server?", &p.Server, "caCert?", &p.CACert, "token?", &p.Token,
+				"clientCert?", &p.ClientCert, "clientKey?", &p.ClientKey,
+				"clusterName?", &p.ClusterName, "userName?", &p.UserName,
+				"contextName?", &p.ContextName, "namespace?", &p.Namespace); err != nil {
+				return nil, err
+			}
+			out, err := KubeconfigBuild(p)
 			if err != nil {
 				return nil, err
 			}

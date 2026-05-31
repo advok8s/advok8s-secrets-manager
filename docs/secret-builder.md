@@ -596,15 +596,27 @@ the default generate-once policy it is computed once and frozen.
 
 | Function | Returns |
 |---|---|
-| ``kubeconfig.fromServiceAccount(serviceAccount, clusterName="", userName="", contextName="")`` | a single-context kubeconfig YAML for the minted SA token (Starlark only) |
+| ``kubeconfig.from_service_account(serviceAccount, clusterName="", userName="", contextName="")`` | a single-context kubeconfig YAML for a minted SA token |
+| ``kubeconfig.build(server="", caCert="", token="", clientCert="", clientKey="", clusterName="", userName="", contextName="", namespace="")`` | a single-context kubeconfig YAML assembled from explicit pieces (token *or* client cert/key) |
 | ``kubeconfig.merge(configs, currentContext="", strict=False)`` | several kubeconfig YAML strings unioned into one (the ``kubectl config view --flatten`` analogue) |
+
+All three return a kubeconfig YAML **string**. ``from_service_account`` pulls the
+server/CA/token out of an ``inputs.serviceAccount`` value; ``build`` is the
+general constructor when you supply the pieces yourself (e.g. a client
+certificate from a generated ``tlsCertificate``). Empty ``clusterName``/``userName``
+default to ``cluster``/``user`` and ``contextName`` defaults to the cluster name.
 
 ``merge`` unions ``clusters``/``users``/``contexts`` by name, first-wins on
 duplicates (list order = precedence); ``strict=True`` errors on same-name-but-
 different entries; ``currentContext`` overrides (default: the first input's).
-Resolve name collisions upstream by giving each ``fromServiceAccount`` a distinct
-``contextName``. gotemplate: ``kubeconfig_merge`` (there is no
-``fromServiceAccount`` in templates — build per-SA kubeconfigs with ``script``).
+Resolve name collisions upstream by giving each ``from_service_account`` /
+``build`` a distinct ``contextName``.
+
+All three are available in gotemplate too: ``kubeconfig_merge configs
+currentContext strict``; ``kubeconfig_build (dict "server" … "token" …)`` (a
+single dict of the same fields); and ``kubeconfig_from_service_account
+.serviceAccount (dict "contextName" …)`` (the SA value plus an optional trailing
+options dict).
 
 ### ``jwt`` — sign and decode JSON Web Tokens
 

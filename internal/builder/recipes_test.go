@@ -156,6 +156,38 @@ func TestKubeconfigFromServiceAccount(t *testing.T) {
 	}
 }
 
+func TestKubeconfigBuild(t *testing.T) {
+	// Client-cert/key credential and an explicit context namespace; defaulted names.
+	out, err := KubeconfigBuild(KubeconfigParams{
+		Server:     "https://api.example:6443",
+		CACert:     "CA-PEM",
+		ClientCert: "CERT-PEM",
+		ClientKey:  "KEY-PEM",
+		Namespace:  "team-a",
+	})
+	if err != nil {
+		t.Fatalf("KubeconfigBuild: %v", err)
+	}
+	cfg, err := clientcmd.Load([]byte(out))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	// Names default to cluster/user, context to the cluster name.
+	if cfg.CurrentContext != "cluster" {
+		t.Errorf("currentContext = %q, want %q", cfg.CurrentContext, "cluster")
+	}
+	auth := cfg.AuthInfos["user"]
+	if auth == nil || string(auth.ClientCertificateData) != "CERT-PEM" || string(auth.ClientKeyData) != "KEY-PEM" {
+		t.Errorf("client cert/key not set: %+v", auth)
+	}
+	if auth.Token != "" {
+		t.Errorf("token should be empty, got %q", auth.Token)
+	}
+	if cfg.Contexts["cluster"].Namespace != "team-a" {
+		t.Errorf("namespace = %q", cfg.Contexts["cluster"].Namespace)
+	}
+}
+
 func TestKubeconfigMerge(t *testing.T) {
 	a, _ := KubeconfigFromServiceAccount("ta", "https://a", "", "ca", "ua", "ctx-a")
 	b, _ := KubeconfigFromServiceAccount("tb", "https://b", "", "cb", "ub", "ctx-b")

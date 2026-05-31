@@ -264,6 +264,38 @@ func templateFuncMap(in *ResolvedInputs) template.FuncMap {
 		}
 		return KubeconfigMerge(s, currentContext, strict)
 	}
+	funcs["kubeconfig_build"] = func(params map[string]any) (string, error) {
+		return KubeconfigBuild(KubeconfigParams{
+			Server:      asString(params["server"]),
+			CACert:      asString(params["caCert"]),
+			Token:       asString(params["token"]),
+			ClientCert:  asString(params["clientCert"]),
+			ClientKey:   asString(params["clientKey"]),
+			ClusterName: asString(params["clusterName"]),
+			UserName:    asString(params["userName"]),
+			ContextName: asString(params["contextName"]),
+			Namespace:   asString(params["namespace"]),
+		})
+	}
+	funcs["kubeconfig_from_service_account"] = func(sa any, opts ...map[string]any) (string, error) {
+		m, ok := sa.(map[string]any)
+		if !ok {
+			return "", fmt.Errorf("kubeconfig_from_service_account: serviceAccount must be a map")
+		}
+		var server, caCert string
+		if cl, ok := m["cluster"].(map[string]any); ok {
+			server = asString(cl["server"])
+			caCert = asString(cl["caCert"])
+		}
+		var clusterName, userName, contextName string
+		if len(opts) > 0 {
+			o := opts[0]
+			clusterName = asString(o["clusterName"])
+			userName = asString(o["userName"])
+			contextName = asString(o["contextName"])
+		}
+		return KubeconfigFromServiceAccount(asString(m["token"]), server, caCert, clusterName, userName, contextName)
+	}
 	funcs["jwt_sign"] = func(claims any, key, alg string, opts ...map[string]any) (string, error) {
 		claimsMap, ok := claims.(map[string]any)
 		if !ok {

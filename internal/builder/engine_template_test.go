@@ -18,6 +18,7 @@ package builder
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -162,6 +163,27 @@ func TestTemplateTypeAndLabels(t *testing.T) {
 	}
 	if result.Labels["team"] != "platform" || result.Labels["static"] != "x" {
 		t.Errorf("labels = %v", result.Labels)
+	}
+}
+
+func TestTemplateKubeconfigFuncs(t *testing.T) {
+	in := sampleInputs()
+	in.ServiceAccount = &ResolvedServiceAccount{
+		Name: "deployer", Namespace: "app", Token: "tok",
+		ClusterServer: "https://api:6443", ClusterCACert: "CA",
+	}
+	result, err := NewTemplateEngine(map[string]string{
+		"fromsa": `{{ kubeconfig_from_service_account .serviceAccount (dict "contextName" "ctx-sa") }}`,
+		"built":  `{{ kubeconfig_build (dict "server" "https://b:6443" "token" "t2" "contextName" "ctx-build") }}`,
+	}).Render(in)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(result.Data["fromsa"]), "ctx-sa") {
+		t.Errorf("kubeconfig_from_service_account output missing its context:\n%s", result.Data["fromsa"])
+	}
+	if !strings.Contains(string(result.Data["built"]), "ctx-build") {
+		t.Errorf("kubeconfig_build output missing its context:\n%s", result.Data["built"])
 	}
 }
 

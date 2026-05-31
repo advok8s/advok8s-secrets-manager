@@ -23,16 +23,35 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
-// KubeconfigFromServiceAccount builds a single-context kubeconfig YAML for a
-// ServiceAccount token, the common "give this SA a kubeconfig" case. Empty names
-// default sensibly. caCert (PEM) is optional.
-func KubeconfigFromServiceAccount(token, server, caCert, clusterName, userName, contextName string) (string, error) {
+// KubeconfigParams is the full set of pieces KubeconfigBuild assembles into a
+// single-context kubeconfig: a cluster (name, server, CA), a user (a token, or a
+// client cert+key), and a context (name, optional namespace). Empty names default
+// sensibly; CA, namespace and the credential fields are optional.
+type KubeconfigParams struct {
+	Server      string // API server URL
+	CACert      string // cluster CA (PEM), optional
+	Token       string // bearer token credential, optional
+	ClientCert  string // client certificate (PEM), optional
+	ClientKey   string // client key (PEM), optional
+	ClusterName string // defaults to "cluster"
+	UserName    string // defaults to "user"
+	ContextName string // defaults to ClusterName
+	Namespace   string // context namespace, optional
+}
+
+// KubeconfigBuild assembles a single-context kubeconfig YAML from explicit pieces.
+// It is the general constructor; KubeconfigFromServiceAccount is the convenience
+// for the SA-token case.
+func KubeconfigBuild(p KubeconfigParams) (string, error) {
+	clusterName := p.ClusterName
 	if clusterName == "" {
 		clusterName = "cluster"
 	}
+	userName := p.UserName
 	if userName == "" {
 		userName = "user"
 	}
+	contextName := p.ContextName
 	if contextName == "" {
 		contextName = clusterName
 	}
@@ -40,19 +59,26 @@ func KubeconfigFromServiceAccount(token, server, caCert, clusterName, userName, 
 	cfg := clientcmdapi.NewConfig()
 
 	cluster := clientcmdapi.NewCluster()
-	cluster.Server = server
-	if caCert != "" {
-		cluster.CertificateAuthorityData = []byte(caCert)
+	cluster.Server = p.Server
+	if p.CACert != "" {
+		cluster.CertificateAuthorityData = []byte(p.CACert)
 	}
 	cfg.Clusters[clusterName] = cluster
 
 	auth := clientcmdapi.NewAuthInfo()
-	auth.Token = token
+	auth.Token = p.Token
+	if p.ClientCert != "" {
+		auth.ClientCertificateData = []byte(p.ClientCert)
+	}
+	if p.ClientKey != "" {
+		auth.ClientKeyData = []byte(p.ClientKey)
+	}
 	cfg.AuthInfos[userName] = auth
 
 	kctx := clientcmdapi.NewContext()
 	kctx.Cluster = clusterName
 	kctx.AuthInfo = userName
+	kctx.Namespace = p.Namespace
 	cfg.Contexts[contextName] = kctx
 
 	cfg.CurrentContext = contextName
@@ -62,6 +88,20 @@ func KubeconfigFromServiceAccount(token, server, caCert, clusterName, userName, 
 		return "", err
 	}
 	return string(out), nil
+}
+
+// KubeconfigFromServiceAccount builds a single-context kubeconfig YAML for a
+// ServiceAccount token, the common "give this SA a kubeconfig" case. Empty names
+// default sensibly. caCert (PEM) is optional.
+func KubeconfigFromServiceAccount(token, server, caCert, clusterName, userName, contextName string) (string, error) {
+	return KubeconfigBuild(KubeconfigParams{
+		Server:      server,
+		CACert:      caCert,
+		Token:       token,
+		ClusterName: clusterName,
+		UserName:    userName,
+		ContextName: contextName,
+	})
 }
 
 // KubeconfigMerge unions several kubeconfig YAML documents into one. On a clashing
