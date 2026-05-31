@@ -3,6 +3,7 @@ module github.com/advok8s/advok8s-secrets-manager
 go 1.25.7
 
 require (
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
 	golang.org/x/crypto v0.52.0
