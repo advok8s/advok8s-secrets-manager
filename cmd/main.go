@@ -187,7 +187,7 @@ func main() {
 	if err := (&controller.SecretCopierReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("secretcopier"), //nolint:staticcheck // classic events API
+		Recorder: mgr.GetEventRecorder("secretcopier"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "secretcopier")
 		os.Exit(1)
@@ -195,7 +195,7 @@ func main() {
 	if err := (&controller.SecretExporterReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("secretexporter"), //nolint:staticcheck // classic events API
+		Recorder: mgr.GetEventRecorder("secretexporter"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "secretexporter")
 		os.Exit(1)
@@ -203,7 +203,7 @@ func main() {
 	if err := (&controller.SecretImporterReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("secretimporter"), //nolint:staticcheck // classic events API
+		Recorder: mgr.GetEventRecorder("secretimporter"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "secretimporter")
 		os.Exit(1)
@@ -211,7 +211,7 @@ func main() {
 	if err := (&controller.SecretInjectorReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("secretinjector"), //nolint:staticcheck // classic events API
+		Recorder: mgr.GetEventRecorder("secretinjector"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "secretinjector")
 		os.Exit(1)
@@ -224,7 +224,7 @@ func main() {
 	if err := (&controller.SecretBuilderReconciler{
 		Client:        mgr.GetClient(),
 		Scheme:        mgr.GetScheme(),
-		Recorder:      mgr.GetEventRecorderFor("secretbuilder"), //nolint:staticcheck // classic events API
+		Recorder:      mgr.GetEventRecorder("secretbuilder"),
 		TokenMinter:   &builder.ClientsetTokenMinter{Clientset: clientset},
 		ClusterServer: clusterAPIServer,
 	}).SetupWithManager(mgr); err != nil {

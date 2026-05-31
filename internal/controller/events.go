@@ -21,10 +21,19 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 
 	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
 )
+
+// emitNote records a single event via the events.k8s.io recorder. The message is
+// passed as a format argument (not the format string) so a literal '%' in a
+// condition message cannot be misinterpreted. related is always nil here: our
+// events concern a single primary object. action is the machine-readable verb
+// (UpperCamelCase) describing the operation the reconciler was performing.
+func emitNote(recorder events.EventRecorder, object runtime.Object, eventtype, reason, action, message string) {
+	recorder.Eventf(object, nil, eventtype, reason, action, "%s", message)
+}
 
 // conditionStatus returns the status of the named condition, or the empty string
 // when the condition is absent. Capturing this value before the conditions are
@@ -41,8 +50,9 @@ func conditionStatus(conditions []metav1.Condition, conditionType string) metav1
 // state: a Warning when the resource becomes Degraded, and a Normal "Recovered"
 // event when it leaves the Degraded state. Nothing is emitted when the state is
 // unchanged, so a steady reconcile produces no event noise. Recorder is nil in
-// unit contexts that do not exercise events, so guard against it.
-func recordDegradedTransition(recorder record.EventRecorder, object runtime.Object, previous metav1.ConditionStatus, conditions []metav1.Condition) {
+// unit contexts that do not exercise events, so guard against it. action is the
+// reconciler's verb (e.g. "Copy", "Inject"), recorded on the event.
+func recordDegradedTransition(recorder events.EventRecorder, object runtime.Object, action string, previous metav1.ConditionStatus, conditions []metav1.Condition) {
 	if recorder == nil {
 		return
 	}
@@ -54,9 +64,9 @@ func recordDegradedTransition(recorder record.EventRecorder, object runtime.Obje
 
 	switch {
 	case degraded.Status == metav1.ConditionTrue:
-		recorder.Event(object, corev1.EventTypeWarning, degraded.Reason, degraded.Message)
+		emitNote(recorder, object, corev1.EventTypeWarning, degraded.Reason, action, degraded.Message)
 	case previous == metav1.ConditionTrue:
-		recorder.Event(object, corev1.EventTypeNormal, "Recovered", degraded.Message)
+		emitNote(recorder, object, corev1.EventTypeNormal, "Recovered", action, degraded.Message)
 	}
 }
 
@@ -64,7 +74,7 @@ func recordDegradedTransition(recorder record.EventRecorder, object runtime.Obje
 // observes its secret as imported (the Ready condition becoming True). The other
 // Ready=False states (awaiting authorization, no matching exporter) are benign
 // waiting states rather than errors, so they intentionally produce no event.
-func recordImportedTransition(recorder record.EventRecorder, object runtime.Object, previous metav1.ConditionStatus, conditions []metav1.Condition) {
+func recordImportedTransition(recorder events.EventRecorder, object runtime.Object, action string, previous metav1.ConditionStatus, conditions []metav1.Condition) {
 	if recorder == nil {
 		return
 	}
@@ -74,5 +84,5 @@ func recordImportedTransition(recorder record.EventRecorder, object runtime.Obje
 		return
 	}
 
-	recorder.Event(object, corev1.EventTypeNormal, ready.Reason, ready.Message)
+	emitNote(recorder, object, corev1.EventTypeNormal, ready.Reason, action, ready.Message)
 }

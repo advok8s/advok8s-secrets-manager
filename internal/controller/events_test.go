@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 
 	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
 )
@@ -31,9 +31,9 @@ func condition(conditionType string, status metav1.ConditionStatus, reason, mess
 }
 
 // assertEvent checks that exactly the expected event string was recorded (or, for
-// an empty want, that none was). record.FakeRecorder formats an event as
-// "<type> <reason> <message>".
-func assertEvent(t *testing.T, recorder *record.FakeRecorder, want string) {
+// an empty want, that none was). events.FakeRecorder formats an event as
+// "<type> <reason> <note>" (the action is not part of the formatted string).
+func assertEvent(t *testing.T, recorder *events.FakeRecorder, want string) {
 	t.Helper()
 	select {
 	case got := <-recorder.Events:
@@ -105,8 +105,8 @@ func TestRecordDegradedTransition(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			recorder := record.NewFakeRecorder(1)
-			recordDegradedTransition(recorder, &secretsv1beta1.SecretCopier{}, tt.previous, tt.conditions)
+			recorder := events.NewFakeRecorder(1)
+			recordDegradedTransition(recorder, &secretsv1beta1.SecretCopier{}, "Copy", tt.previous, tt.conditions)
 			assertEvent(t, recorder, tt.want)
 		})
 	}
@@ -155,8 +155,8 @@ func TestRecordImportedTransition(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			recorder := record.NewFakeRecorder(1)
-			recordImportedTransition(recorder, &secretsv1beta1.SecretImporter{}, tt.previous, tt.conditions)
+			recorder := events.NewFakeRecorder(1)
+			recordImportedTransition(recorder, &secretsv1beta1.SecretImporter{}, "Authorize", tt.previous, tt.conditions)
 			assertEvent(t, recorder, tt.want)
 		})
 	}
@@ -165,6 +165,6 @@ func TestRecordImportedTransition(t *testing.T) {
 // TestRecordTransitionsNilRecorder ensures the helpers are safe when no recorder
 // is configured (the guard used by unit contexts that do not exercise events).
 func TestRecordTransitionsNilRecorder(t *testing.T) {
-	recordDegradedTransition(nil, &secretsv1beta1.SecretCopier{}, "", condition(secretsv1beta1.ConditionDegraded, metav1.ConditionTrue, "X", "y"))
-	recordImportedTransition(nil, &secretsv1beta1.SecretImporter{}, "", condition(secretsv1beta1.ConditionReady, metav1.ConditionTrue, "Imported", "y"))
+	recordDegradedTransition(nil, &secretsv1beta1.SecretCopier{}, "Copy", "", condition(secretsv1beta1.ConditionDegraded, metav1.ConditionTrue, "X", "y"))
+	recordImportedTransition(nil, &secretsv1beta1.SecretImporter{}, "Authorize", "", condition(secretsv1beta1.ConditionReady, metav1.ConditionTrue, "Imported", "y"))
 }

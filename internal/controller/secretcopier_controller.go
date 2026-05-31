@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -44,7 +44,7 @@ import (
 type SecretCopierReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretcopiers,verbs=get;list;watch;create;update;patch;delete
@@ -279,7 +279,7 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	recordDegradedTransition(r.Recorder, &secretCopier, prevDegraded, status.Conditions)
+	recordDegradedTransition(r.Recorder, &secretCopier, "Copy", prevDegraded, status.Conditions)
 
 	// Requeue the request based on the synchronizaion period defined for the
 	// SecretCopier. This is to ensure that we periodically check for case where

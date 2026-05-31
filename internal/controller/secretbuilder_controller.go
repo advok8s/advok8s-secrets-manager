@@ -31,7 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -68,7 +68,7 @@ const (
 type SecretBuilderReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 
 	TokenMinter   sb.TokenMinter
 	ClusterServer string
@@ -372,12 +372,14 @@ func (r *SecretBuilderReconciler) emitEvents(builder *secretsv1beta1.SecretBuild
 		return
 	}
 
+	const action = "Generate"
+
 	degraded := meta.FindStatusCondition(conditions, secretsv1beta1.ConditionDegraded)
 	if degraded != nil && degraded.Status != prev.degradedStatus {
 		if degraded.Status == metav1.ConditionTrue {
-			r.Recorder.Event(builder, corev1.EventTypeWarning, degraded.Reason, degraded.Message)
+			emitNote(r.Recorder, builder, corev1.EventTypeWarning, degraded.Reason, action, degraded.Message)
 		} else if prev.degradedStatus == metav1.ConditionTrue {
-			r.Recorder.Event(builder, corev1.EventTypeNormal, "Recovered", degraded.Message)
+			emitNote(r.Recorder, builder, corev1.EventTypeNormal, "Recovered", action, degraded.Message)
 		}
 	}
 
@@ -387,9 +389,9 @@ func (r *SecretBuilderReconciler) emitEvents(builder *secretsv1beta1.SecretBuild
 	}
 	switch {
 	case ready.Status == metav1.ConditionTrue && prev.readyStatus != metav1.ConditionTrue:
-		r.Recorder.Event(builder, corev1.EventTypeNormal, ready.Reason, ready.Message)
+		emitNote(r.Recorder, builder, corev1.EventTypeNormal, ready.Reason, action, ready.Message)
 	case ready.Status != metav1.ConditionTrue && isWaitingReason(ready.Reason) && ready.Reason != prev.readyReason:
-		r.Recorder.Event(builder, corev1.EventTypeNormal, ready.Reason, ready.Message)
+		emitNote(r.Recorder, builder, corev1.EventTypeNormal, ready.Reason, action, ready.Message)
 	}
 }
 
