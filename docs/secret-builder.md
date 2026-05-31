@@ -424,9 +424,11 @@ spec:
 
 Loaded code runs in the same sandbox and can do nothing the inline script cannot
 (it has the recipe/primitive modules but not the per-build ``input``, ``fail`` or
-``retry``). Libraries may ``load`` other declared libraries. Library content folds
-into the input fingerprint, so editing a shared module refreshes every dependent
-builder under ``onInputChange``.
+``retry``). ``load()`` is available **only in the top-level script** — a loaded
+library cannot itself ``load()`` another library (which keeps the load graph flat
+and makes load cycles impossible). Library content folds into the input
+fingerprint, so editing a shared module refreshes every dependent builder under
+``onInputChange``.
 
 The generator: script vs template
 ----------------------------------

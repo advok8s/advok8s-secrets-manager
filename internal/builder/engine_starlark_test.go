@@ -18,6 +18,7 @@ package builder
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -166,6 +167,26 @@ secret = {"data": {"out": shout("hi")}}
 	}
 	if string(result.Data["out"]) != "hi!" {
 		t.Errorf("library result = %q", result.Data["out"])
+	}
+}
+
+// TestStarlarkLibraryCannotLoad confirms load() is a top-level-script facility
+// only: a library that itself calls load() fails, which makes load() cycles
+// impossible (no library can begin a load chain).
+func TestStarlarkLibraryCannotLoad(t *testing.T) {
+	in := sampleInputs()
+	in.Libraries["a"] = "load(\"b\", \"x\")\ndef f():\n    return x\n"
+	in.Libraries["b"] = "x = 1\n"
+	script := `
+load("a", "f")
+secret = {"data": {"out": str(f())}}
+`
+	_, err := NewStarlarkEngine(script).Render(in)
+	if err == nil {
+		t.Fatal("expected an error: a library must not be able to load() another")
+	}
+	if !strings.Contains(err.Error(), "top-level script") {
+		t.Errorf("error = %v, want it to explain load() is top-level only", err)
 	}
 }
 
