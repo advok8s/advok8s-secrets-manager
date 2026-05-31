@@ -34,28 +34,41 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
 	sb "github.com/advok8s/advok8s-secrets-manager/internal/builder"
 )
 
-// awaitingRequeue is how often a builder waiting on absent inputs retries while it
-// has no watch on those inputs. Input watches (a later phase) make this a backstop.
+// awaitingRequeue is how often a builder waiting on absent inputs retries beyond
+// the input watch (a backstop for inputs the watch does not cover).
 const awaitingRequeue = 15 * time.Second
+
+// genAction is the decision of what to do this reconcile.
+type genAction int
+
+const (
+	actionStable        genAction = iota // output present and current; do nothing
+	actionGenerateFresh                  // first generation (or generate-once recovery): new material, now
+	actionRefresh                        // re-run with persisted material + frozen generatedAt
+	actionRotateFresh                    // re-stamp generatedAt now, re-roll entropy
+	actionRotateKeep                     // re-stamp generatedAt now, reuse persisted entropy
+)
 
 // SecretBuilderReconciler reconciles a SecretBuilder by resolving its inputs,
 // generating any random material, running its script/template, and writing the
-// resulting Secret. This phase implements the generate-once policy: the Secret is
-// produced when absent and then left alone.
+// resulting Secret. It implements the regeneration model: generate-once by
+// default, with optional onInputChange refresh, rotateEvery rotation, and a manual
+// regenerate annotation. Generated material is persisted in an owned companion
+// Secret so a refresh replays it identically.
 type SecretBuilderReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
 
-	// TokenMinter mints ServiceAccount tokens (required only for builders with a
-	// serviceAccount input). ClusterServer is exposed as serviceAccount.cluster.server.
 	TokenMinter   sb.TokenMinter
 	ClusterServer string
 
@@ -72,7 +85,7 @@ type SecretBuilderReconciler struct {
 // +kubebuilder:rbac:groups="",resources=serviceaccounts/token,verbs=create
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
-// Reconcile produces the Secret for a SecretBuilder.
+// Reconcile produces (and regenerates) the Secret for a SecretBuilder.
 func (r *SecretBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -80,69 +93,126 @@ func (r *SecretBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if err := r.Get(ctx, req.NamespacedName, &builder); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-
-	// Being deleted: the output Secret is owned via ownerReference and garbage
-	// collected, and there are no finalizers, so there is nothing to do.
 	if !builder.DeletionTimestamp.IsZero() {
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, nil // owned output/companion are GC'd via ownerReferences
 	}
 
 	prev := capturePrev(builder.Status.Conditions)
+	status := copyStatus(&builder)
 
-	status := secretsv1beta1.SecretBuilderStatus{
-		ObservedGeneration:      builder.Generation,
-		Conditions:              builder.Status.Conditions,
-		SecretName:              builder.Name,
-		Generated:               builder.Status.Generated,
-		LastGeneratedTime:       builder.Status.LastGeneratedTime,
-		NextRotationTime:        builder.Status.NextRotationTime,
-		ObservedRegenerateToken: builder.Status.ObservedRegenerateToken,
-		InputFingerprint:        builder.Status.InputFingerprint,
-		Revision:                builder.Status.Revision,
-	}
+	regen := builder.Spec.Regeneration
+	regenEnabled := regen.OnInputChange || regen.RotateEvery != nil
 
-	// Generate-once gate: once the output Secret exists, it is left untouched
-	// (drift and deletion handling and regeneration triggers arrive in a later
-	// phase). A hand-edit or deletion is therefore not corrected here.
 	var existing corev1.Secret
 	getErr := r.Get(ctx, client.ObjectKey{Namespace: builder.Namespace, Name: builder.Name}, &existing)
 	if getErr != nil && client.IgnoreNotFound(getErr) != nil {
 		return ctrl.Result{}, getErr
 	}
-	if getErr == nil && status.Generated {
-		setConditions(&status, builder.Generation, metav1.ConditionTrue, "Generated",
-			fmt.Sprintf("Secret %q generated", builder.Name), metav1.ConditionFalse, "Generated", "Secret generated")
-		return r.finish(ctx, &builder, status, prev, ctrl.Result{})
-	}
+	outputExists := getErr == nil
 
-	// Resolve inputs.
+	// Resolve inputs (provisional generatedAt = now; only Context.GeneratedAt
+	// depends on it and is fixed once the action is known).
+	now := metav1.Now()
 	resolver := &sb.Resolver{Client: r.Client, TokenMinter: r.TokenMinter, ClusterServer: r.ClusterServer}
-	generatedAt := metav1.Now()
-	resolved, pending, err := resolver.Resolve(ctx, &builder, generatedAt.Time)
+	resolved, pending, err := resolver.Resolve(ctx, &builder, now.Time)
 	if err != nil {
 		setConditions(&status, builder.Generation, metav1.ConditionFalse, "InvalidInput", err.Error(),
 			metav1.ConditionTrue, "InvalidInput", err.Error())
 		return r.finish(ctx, &builder, status, prev, ctrl.Result{})
 	}
 	if len(pending) > 0 {
-		reason := secretsv1beta1ReasonFor(pending)
+		reason := pendingReason(pending)
 		msg := pending[0].Message
 		setConditions(&status, builder.Generation, metav1.ConditionFalse, reason, msg,
 			metav1.ConditionFalse, reason, msg)
 		log.V(1).Info("SecretBuilder awaiting inputs", "name", req.NamespacedName, "reason", reason)
 		return r.finish(ctx, &builder, status, prev, ctrl.Result{RequeueAfter: awaitingRequeue})
 	}
+	fingerprint := resolved.Fingerprint()
 
-	// Generate random material and fold it into the inputs.
-	generated, err := sb.GenerateAll(builder.Spec.Inputs.Generated, r.randReader(), generatedAt.Time, resolved)
-	if err != nil {
-		return r.fail(ctx, &builder, &status, prev, "GeneratorError", err)
+	// Load persisted material if regeneration is enabled and we have generated before.
+	var companionGen map[string]map[string]any
+	var companionAt time.Time
+	companionExists := false
+	if regenEnabled && status.Generated {
+		companionGen, companionAt, companionExists, err = r.loadCompanion(ctx, &builder)
+		if err != nil {
+			return r.fail(ctx, &builder, &status, prev, "GeneratorError", fmt.Errorf("reading companion state: %w", err))
+		}
 	}
+
+	manualToken := builder.Annotations[sb.RegenerateAnnotation]
+	manualChanged := manualToken != "" && manualToken != status.ObservedRegenerateToken
+
+	rotate := func() genAction {
+		if regen.RotateGenerated || !companionExists {
+			return actionRotateFresh
+		}
+		return actionRotateKeep
+	}
+
+	var action genAction
+	switch {
+	case !status.Generated:
+		action = actionGenerateFresh
+	case !outputExists:
+		// The output was deleted. Restore from persisted material when we have it
+		// (no surprise rotation); otherwise (generate-once) regenerate fresh - the
+		// only copy of the entropy went away with the Secret.
+		if companionExists {
+			action = actionRefresh
+		} else {
+			action = actionGenerateFresh
+		}
+	case manualChanged:
+		action = rotate()
+	case regen.RotateEvery != nil && status.LastGeneratedTime != nil &&
+		!now.Time.Before(status.LastGeneratedTime.Add(regen.RotateEvery.Duration)):
+		action = rotate()
+	case regen.OnInputChange && companionExists && fingerprint != status.InputFingerprint:
+		action = actionRefresh
+	default:
+		action = actionStable
+	}
+
+	if action == actionStable {
+		setGenerated(&status, &builder)
+		result := ctrl.Result{}
+		if regen.RotateEvery != nil && status.LastGeneratedTime != nil {
+			next := status.LastGeneratedTime.Add(regen.RotateEvery.Duration)
+			status.NextRotationTime = &metav1.Time{Time: next}
+			if d := time.Until(next); d > 0 {
+				result.RequeueAfter = d
+			} else {
+				result.RequeueAfter = time.Second
+			}
+		}
+		return r.finish(ctx, &builder, status, prev, result)
+	}
+
+	// Determine the generation time and material for the chosen action.
+	var finalAt metav1.Time
+	var generated map[string]map[string]any
+	switch action {
+	case actionGenerateFresh, actionRotateFresh:
+		finalAt = now
+		generated, err = sb.GenerateAll(builder.Spec.Inputs.Generated, r.randReader(), finalAt.Time, resolved)
+		if err != nil {
+			return r.fail(ctx, &builder, &status, prev, "GeneratorError", err)
+		}
+	case actionRotateKeep:
+		finalAt = now
+		generated = companionGen
+	case actionRefresh:
+		finalAt = metav1.Time{Time: companionAt}
+		generated = companionGen
+	}
+
+	resolved.Context.GeneratedAt = finalAt.Time
 	for handle, attrs := range generated {
 		resolved.Generated[handle] = attrs
 	}
 
-	// Run the generator.
 	engine, err := r.engineFor(&builder)
 	if err != nil {
 		setConditions(&status, builder.Generation, metav1.ConditionFalse, "InvalidInput", err.Error(),
@@ -170,13 +240,13 @@ func (r *SecretBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return r.fail(ctx, &builder, &status, prev, "GeneratorError", err)
 	}
 
-	// Assemble and write the output Secret.
+	// Write the output Secret.
 	revision := sb.RevisionOf(result.Data)
 	secretType := result.Type
 	if secretType == "" {
 		secretType = string(builder.Spec.Output.Type)
 	}
-	writeErr := sb.WriteSecret(ctx, r.Client, r.Scheme, &builder, sb.WriteRequest{
+	if err := sb.WriteSecret(ctx, r.Client, r.Scheme, &builder, sb.WriteRequest{
 		Name:        builder.Name,
 		Namespace:   builder.Namespace,
 		Type:        secretType,
@@ -184,31 +254,82 @@ func (r *SecretBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		Annotations: builder.Spec.Output.Annotations,
 		Data:        result.Data,
 		Revision:    revision,
-	})
-	if writeErr != nil {
-		return r.fail(ctx, &builder, &status, prev, "GeneratorError", writeErr)
+	}); err != nil {
+		return r.fail(ctx, &builder, &status, prev, "GeneratorError", err)
+	}
+
+	// Persist the companion state so a future refresh/keep-entropy rotation can
+	// replay this exact material and generatedAt.
+	if regenEnabled {
+		if err := r.writeCompanion(ctx, &builder, generated, finalAt.Time); err != nil {
+			return r.fail(ctx, &builder, &status, prev, "GeneratorError", fmt.Errorf("writing companion state: %w", err))
+		}
 	}
 
 	status.Generated = true
-	status.LastGeneratedTime = &generatedAt
+	status.LastGeneratedTime = &finalAt
 	status.Revision = revision
-	status.InputFingerprint = resolved.Fingerprint()
-	setConditions(&status, builder.Generation, metav1.ConditionTrue, "Generated",
-		fmt.Sprintf("Secret %q generated", builder.Name), metav1.ConditionFalse, "Generated", "Secret generated")
+	status.InputFingerprint = fingerprint
+	if manualToken != "" {
+		status.ObservedRegenerateToken = manualToken
+	}
+	requeue := ctrl.Result{}
+	if regen.RotateEvery != nil {
+		next := finalAt.Add(regen.RotateEvery.Duration)
+		status.NextRotationTime = &metav1.Time{Time: next}
+		if d := time.Until(next); d > 0 {
+			requeue.RequeueAfter = d
+		} else {
+			requeue.RequeueAfter = time.Second
+		}
+	}
+	setGenerated(&status, &builder)
 
-	return r.finish(ctx, &builder, status, prev, ctrl.Result{})
+	return r.finish(ctx, &builder, status, prev, requeue)
 }
 
-// fail records a generator/internal failure as Degraded/<reason> and returns.
+// loadCompanion reads the persisted generated material and frozen generatedAt.
+func (r *SecretBuilderReconciler) loadCompanion(ctx context.Context, builder *secretsv1beta1.SecretBuilder) (map[string]map[string]any, time.Time, bool, error) {
+	var companion corev1.Secret
+	err := r.Get(ctx, client.ObjectKey{Namespace: builder.Namespace, Name: sb.CompanionSecretName(builder.Name)}, &companion)
+	if apierrors.IsNotFound(err) {
+		return nil, time.Time{}, false, nil
+	}
+	if err != nil {
+		return nil, time.Time{}, false, err
+	}
+	generated, err := sb.DeserializeGenerated(companion.Data["generated"])
+	if err != nil {
+		return nil, time.Time{}, false, err
+	}
+	generatedAt, err := time.Parse(time.RFC3339, string(companion.Data["generatedAt"]))
+	if err != nil {
+		return nil, time.Time{}, false, err
+	}
+	return generated, generatedAt, true, nil
+}
+
+func (r *SecretBuilderReconciler) writeCompanion(ctx context.Context, builder *secretsv1beta1.SecretBuilder, generated map[string]map[string]any, generatedAt time.Time) error {
+	data, err := sb.SerializeGenerated(generated)
+	if err != nil {
+		return err
+	}
+	return sb.WriteSecret(ctx, r.Client, r.Scheme, builder, sb.WriteRequest{
+		Name:      sb.CompanionSecretName(builder.Name),
+		Namespace: builder.Namespace,
+		Data: map[string][]byte{
+			"generated":   data,
+			"generatedAt": []byte(generatedAt.UTC().Format(time.RFC3339)),
+		},
+	})
+}
+
 func (r *SecretBuilderReconciler) fail(ctx context.Context, builder *secretsv1beta1.SecretBuilder, status *secretsv1beta1.SecretBuilderStatus, prev prevConditions, reason string, err error) (ctrl.Result, error) {
-	// The message is the error class/location; generated values are never echoed.
 	setConditions(status, builder.Generation, metav1.ConditionFalse, reason, err.Error(),
 		metav1.ConditionTrue, reason, err.Error())
 	return r.finish(ctx, builder, *status, prev, ctrl.Result{})
 }
 
-// finish writes status (only when changed), emits transition events, and returns
-// the requeue result.
 func (r *SecretBuilderReconciler) finish(ctx context.Context, builder *secretsv1beta1.SecretBuilder, status secretsv1beta1.SecretBuilderStatus, prev prevConditions, result ctrl.Result) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -227,9 +348,6 @@ func (r *SecretBuilderReconciler) finish(ctx context.Context, builder *secretsv1
 	return result, nil
 }
 
-// emitEvents emits events on Ready/Degraded transitions: a Warning when becoming
-// Degraded, a Normal "Generated" when first Ready, and a Normal event when
-// entering a waiting state (AwaitingInput / MissingServiceAccount).
 func (r *SecretBuilderReconciler) emitEvents(builder *secretsv1beta1.SecretBuilder, prev prevConditions, conditions []metav1.Condition) {
 	if r.Recorder == nil {
 		return
@@ -275,18 +393,60 @@ func (r *SecretBuilderReconciler) randReader() io.Reader {
 	return rand.Reader
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// SetupWithManager sets up the controller with the Manager. It reconciles on spec
+// changes and on the regenerate annotation, and watches Secrets so a changed input
+// (including an upstream builder's output) refreshes dependent builders. There is
+// deliberately no watch on the builder's own output (see the design's drift model).
 func (r *SecretBuilderReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&secretsv1beta1.SecretBuilder{}, ctrlbuilder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&secretsv1beta1.SecretBuilder{}, ctrlbuilder.WithPredicates(
+			predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{}))).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.findBuildersForSecret)).
 		Named("secretbuilder").
 		Complete(r)
 }
 
+// findBuildersForSecret enqueues onInputChange builders whose secret inputs match
+// the changed Secret, carrying upstream-revision propagation through the chain.
+func (r *SecretBuilderReconciler) findBuildersForSecret(ctx context.Context, object client.Object) []reconcile.Request {
+	secret, ok := object.(*corev1.Secret)
+	if !ok {
+		return nil
+	}
+
+	var builders secretsv1beta1.SecretBuilderList
+	if err := r.List(ctx, &builders); err != nil {
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for i := range builders.Items {
+		b := builders.Items[i]
+		if !b.Spec.Regeneration.OnInputChange || b.Namespace != secret.Namespace {
+			continue
+		}
+		for j := range b.Spec.Inputs.Secrets {
+			if matchesSecretInput(&b.Spec.Inputs.Secrets[j], secret) {
+				requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&b)})
+				break
+			}
+		}
+	}
+	return requests
+}
+
+func matchesSecretInput(input *secretsv1beta1.SecretInput, secret *corev1.Secret) bool {
+	if input.SecretRef != nil {
+		return input.SecretRef.Name == secret.Name
+	}
+	if input.Selector != nil {
+		return input.Selector.Matches(&secret.ObjectMeta)
+	}
+	return false
+}
+
 // ---- helpers ------------------------------------------------------------
 
-// prevConditions snapshots the prior Ready/Degraded states so finish can emit
-// events only on transitions.
 type prevConditions struct {
 	readyStatus    metav1.ConditionStatus
 	readyReason    string
@@ -305,6 +465,25 @@ func capturePrev(conditions []metav1.Condition) prevConditions {
 	return p
 }
 
+func copyStatus(builder *secretsv1beta1.SecretBuilder) secretsv1beta1.SecretBuilderStatus {
+	return secretsv1beta1.SecretBuilderStatus{
+		ObservedGeneration:      builder.Generation,
+		Conditions:              builder.Status.Conditions,
+		SecretName:              builder.Name,
+		Generated:               builder.Status.Generated,
+		LastGeneratedTime:       builder.Status.LastGeneratedTime,
+		NextRotationTime:        builder.Status.NextRotationTime,
+		ObservedRegenerateToken: builder.Status.ObservedRegenerateToken,
+		InputFingerprint:        builder.Status.InputFingerprint,
+		Revision:                builder.Status.Revision,
+	}
+}
+
+func setGenerated(status *secretsv1beta1.SecretBuilderStatus, builder *secretsv1beta1.SecretBuilder) {
+	setConditions(status, builder.Generation, metav1.ConditionTrue, "Generated",
+		fmt.Sprintf("Secret %q generated", builder.Name), metav1.ConditionFalse, "Generated", "Secret generated")
+}
+
 func setConditions(status *secretsv1beta1.SecretBuilderStatus, generation int64,
 	ready metav1.ConditionStatus, readyReason, readyMsg string,
 	degraded metav1.ConditionStatus, degradedReason, degradedMsg string) {
@@ -316,7 +495,7 @@ func setConditions(status *secretsv1beta1.SecretBuilderStatus, generation int64,
 	})
 }
 
-func secretsv1beta1ReasonFor(pending []sb.Pending) string {
+func pendingReason(pending []sb.Pending) string {
 	for _, p := range pending {
 		if p.Reason == sb.ReasonMissingServiceAcc {
 			return "MissingServiceAccount"
@@ -343,7 +522,6 @@ func mergeLabels(base, extra map[string]string) map[string]string {
 	return out
 }
 
-// truncateMessage keeps condition messages concise (verbose detail goes to logs).
 func truncateMessage(msg string) string {
 	const max = 1024
 	if len(msg) > max {
