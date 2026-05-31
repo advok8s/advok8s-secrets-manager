@@ -12,18 +12,22 @@ operator. It copies and distributes Kubernetes Secrets across namespaces, and in
 references to them into service accounts.
 
 **Implemented:** `SecretCopier`, `SecretExporter`, `SecretImporter`,
-`SecretInjector`.
+`SecretInjector`, `SecretBuilder`.
 
-The custom resources are functionally equivalent to the originals, so their
-behaviour is documented authoritatively by the Educates project rather than
-duplicated here:
+The first four custom resources are functionally equivalent to the originals, so
+their behaviour is documented authoritatively by the Educates project rather than
+duplicated here. `SecretBuilder` is new in this implementation — it has no
+Educates counterpart (see below).
 
 - **Resource behaviour** — Educates custom-resource docs:
   [secret-copier](https://github.com/educates/educates-training-platform/blob/develop/project-docs/custom-resources/secret-copier.md)
   (and `secret-exporter`, `secret-importer`, `secret-injector`).
 - **How this implementation differs** — see [DIFFERENCES.md](DIFFERENCES.md).
-  The most visible difference: the API group is `secrets.advok8s.io`, not
-  `secrets.educates.dev`.
+  The most visible differences: the API group is `secrets.advok8s.io`, not
+  `secrets.educates.dev`, and this implementation adds `SecretBuilder`, a
+  net-new resource that generates a `Secret` from declared inputs via a Starlark
+  script or gotemplate template (documented in
+  [docs/secret-builder.md](docs/secret-builder.md)).
 - **Field-level reference** — `kubectl explain secretcopier.spec` against an
   installed CRD.
 - **Runnable examples** — see [`config/samples/`](config/samples/).
