@@ -70,7 +70,9 @@ type SecretBuilderReconciler struct {
 	Scheme   *runtime.Scheme
 	Recorder events.EventRecorder
 
-	TokenMinter   sb.TokenMinter
+	TokenMinter sb.TokenMinter
+	// ClusterServer is the API server URL exposed as serviceAccount.cluster.server;
+	// set from builder.ClusterAPIServerURL() (the in-cluster address).
 	ClusterServer string
 
 	// Rand is the entropy source for generated material (defaults to crypto/rand).

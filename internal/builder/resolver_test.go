@@ -350,3 +350,27 @@ func names(secrets []*ResolvedSecret) []string {
 	}
 	return out
 }
+
+func TestClusterAPIServerURL(t *testing.T) {
+	t.Run("from env", func(t *testing.T) {
+		t.Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.1")
+		t.Setenv("KUBERNETES_SERVICE_PORT", "443")
+		if got := ClusterAPIServerURL(); got != "https://10.0.0.1:443" {
+			t.Errorf("ClusterAPIServerURL() = %q", got)
+		}
+	})
+	t.Run("ipv6 host is bracketed", func(t *testing.T) {
+		t.Setenv("KUBERNETES_SERVICE_HOST", "fd00::1")
+		t.Setenv("KUBERNETES_SERVICE_PORT", "6443")
+		if got := ClusterAPIServerURL(); got != "https://[fd00::1]:6443" {
+			t.Errorf("ClusterAPIServerURL() = %q", got)
+		}
+	})
+	t.Run("fallback to in-cluster DNS when unset", func(t *testing.T) {
+		t.Setenv("KUBERNETES_SERVICE_HOST", "")
+		t.Setenv("KUBERNETES_SERVICE_PORT", "")
+		if got := ClusterAPIServerURL(); got != "https://kubernetes.default.svc" {
+			t.Errorf("ClusterAPIServerURL() = %q", got)
+		}
+	})
+}

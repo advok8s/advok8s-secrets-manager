@@ -28,6 +28,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
+	"os"
 	"sort"
 	"time"
 
@@ -147,8 +149,24 @@ type Resolver struct {
 	// declares a serviceAccount input.
 	TokenMinter TokenMinter
 	// ClusterServer is the API server URL exposed as serviceAccount.cluster.server.
-	// Supplied via spec/flag because it is not reliably discoverable in-cluster.
+	// Populated from ClusterAPIServerURL() at operator startup (the in-cluster
+	// address); only the internal endpoint is exposed, not any external one.
 	ClusterServer string
+}
+
+// ClusterAPIServerURL returns the in-cluster Kubernetes API server URL, derived
+// from the standard KUBERNETES_SERVICE_HOST / KUBERNETES_SERVICE_PORT environment
+// variables (present in every pod), falling back to the in-cluster DNS name
+// https://kubernetes.default.svc when they are unset. This is deliberately the
+// internal endpoint - suitable for in-cluster consumers of a generated kubeconfig;
+// no attempt is made to discover an external API server address.
+func ClusterAPIServerURL() string {
+	host := os.Getenv("KUBERNETES_SERVICE_HOST")
+	port := os.Getenv("KUBERNETES_SERVICE_PORT")
+	if host != "" && port != "" {
+		return "https://" + net.JoinHostPort(host, port)
+	}
+	return "https://kubernetes.default.svc"
 }
 
 // Resolve turns the SecretBuilder's inputs into a bundle. It returns the resolved

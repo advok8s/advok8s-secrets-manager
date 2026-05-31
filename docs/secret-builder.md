@@ -248,15 +248,20 @@ The resolved object exposes:
 |---|---|
 | ``input.serviceAccount.token`` | the freshly-minted bound token |
 | ``input.serviceAccount.namespace`` | the ServiceAccount's namespace |
-| ``input.serviceAccount.cluster.server`` | the API server URL (from the ``--cluster-api-server`` flag) |
+| ``input.serviceAccount.cluster.server`` | the **in-cluster** API server URL |
 | ``input.serviceAccount.cluster.caCert`` | the cluster CA (PEM), from the ``kube-root-ca.crt`` ConfigMap |
 
-``cluster.server`` is not reliably discoverable in-cluster, so the operator takes
-it from its ``--cluster-api-server`` flag; if unset, the field is empty. A bound
-token is tied to the ServiceAccount's name **and UID**, so when validated by the
-API server, deleting the ServiceAccount effectively revokes the token on next use,
-and delete-then-recreate gives a new UID that rejects old tokens. A token consumed
-by an external service that only checks signature + ``exp`` + ``aud`` will not
+``cluster.server`` is the **internal** API server endpoint, derived from the
+operator pod's ``KUBERNETES_SERVICE_HOST`` / ``KUBERNETES_SERVICE_PORT``
+environment variables, falling back to ``https://kubernetes.default.svc`` when
+they are unset. The operator does not try to discover an external API server
+address, so a generated kubeconfig targets the cluster from **inside** it; for
+external use, override the server in your generator (e.g. from an
+``inputs.constants`` value). A bound token is tied to the ServiceAccount's name
+**and UID**, so when validated by the API server, deleting the ServiceAccount
+effectively revokes the token on next use, and delete-then-recreate gives a new
+UID that rejects old tokens. A token consumed by an external service that only
+checks signature + ``exp`` + ``aud`` will not
 notice the deletion — there only ``expirationSeconds`` bounds it.
 
 Inputs: generated material

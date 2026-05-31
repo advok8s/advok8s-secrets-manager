@@ -81,10 +81,6 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	var clusterAPIServer string
-	flag.StringVar(&clusterAPIServer, "cluster-api-server", "",
-		"External API server URL exposed to SecretBuilder as serviceAccount.cluster.server "+
-			"(not reliably discoverable in-cluster).")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -226,7 +222,7 @@ func main() {
 		Scheme:        mgr.GetScheme(),
 		Recorder:      mgr.GetEventRecorder("secretbuilder"),
 		TokenMinter:   &builder.ClientsetTokenMinter{Clientset: clientset},
-		ClusterServer: clusterAPIServer,
+		ClusterServer: builder.ClusterAPIServerURL(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "secretbuilder")
 		os.Exit(1)
