@@ -31,10 +31,14 @@ import (
 var starlarkFileOptions = &syntax.FileOptions{}
 
 // defaultMaxOutputBytes caps the total size of the produced Secret data, bounding
-// a runaway generator. defaultMaxSteps bounds execution.
+// a runaway generator. It matches Kubernetes' own MaxSecretSize (the API server
+// rejects a Secret whose data exceeds this), so the cap never rejects output that
+// the cluster would accept. defaultMaxSteps bounds Starlark execution: 10M is
+// ample for any realistic generator (iterating inputs, building structures) while
+// catching a runaway loop quickly.
 const (
-	defaultMaxOutputBytes = 1 << 20 // 1 MiB
-	defaultMaxSteps       = 100_000_000
+	defaultMaxOutputBytes = 1 << 20    // 1 MiB == Kubernetes MaxSecretSize
+	defaultMaxSteps       = 10_000_000 // 10M Starlark steps
 )
 
 // StarlarkEngine renders a Starlark script. The script reads the predeclared
