@@ -36,6 +36,7 @@ Prerequisites: the CRDs installed (`make install`) and the operator running
 | [secretbuilder-jwt.yaml](secretbuilder-jwt.yaml) | A SecretBuilder signing a JWT with a generated RSA key, rotated before expiry (`rotateEvery`) while keeping the signing key. |
 | [secretbuilder-template.yaml](secretbuilder-template.yaml) | A SecretBuilder using the gotemplate engine (`template:`) with Sprig functions instead of a Starlark script. |
 | [secretbuilder-chaining.yaml](secretbuilder-chaining.yaml) | Two chained SecretBuilders: an upstream password change propagates to a downstream builder via `onInputChange`. |
+| [secretbuilder-kubeconfig-merge.yaml](secretbuilder-kubeconfig-merge.yaml) | Two ServiceAccounts, each turned into a single-context kubeconfig (`kubeconfig.fromServiceAccount`, distinct context names), then merged into one multi-context kubeconfig by a third builder (`kubeconfig.merge`). |
 
 Each file's header comment lists the exact apply / verify / clean-up commands
 for that scenario.
