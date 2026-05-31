@@ -144,7 +144,7 @@ func buildPassword(spec secretsv1beta1.PasswordSpec, r io.Reader) (string, error
 		if alphabet == "" {
 			return "", fmt.Errorf("charset is empty after exclusions")
 		}
-		return drawString(alphabet, spec.Length, boolValue(spec.AllowRepeat, true), r)
+		return drawString(alphabet, spec.Length, boolOrTrue(spec.AllowRepeat), r)
 	}
 
 	type class struct {
@@ -153,10 +153,10 @@ func buildPassword(spec secretsv1beta1.PasswordSpec, r io.Reader) (string, error
 		chars   string
 	}
 	classes := []class{
-		{boolValue(spec.Upper, true), spec.MinUpper, removeRunes(upperChars, spec.ExcludeCharacters, spec.ExcludeAmbiguous)},
-		{boolValue(spec.Lower, true), spec.MinLower, removeRunes(lowerChars, spec.ExcludeCharacters, spec.ExcludeAmbiguous)},
-		{boolValue(spec.Digits, true), spec.MinDigits, removeRunes(digitChars, spec.ExcludeCharacters, spec.ExcludeAmbiguous)},
-		{boolValue(spec.Symbols, true), spec.MinSymbols, removeRunes(symbolSet(spec), spec.ExcludeCharacters, spec.ExcludeAmbiguous)},
+		{boolOrTrue(spec.Upper), spec.MinUpper, removeRunes(upperChars, spec.ExcludeCharacters, spec.ExcludeAmbiguous)},
+		{boolOrTrue(spec.Lower), spec.MinLower, removeRunes(lowerChars, spec.ExcludeCharacters, spec.ExcludeAmbiguous)},
+		{boolOrTrue(spec.Digits), spec.MinDigits, removeRunes(digitChars, spec.ExcludeCharacters, spec.ExcludeAmbiguous)},
+		{boolOrTrue(spec.Symbols), spec.MinSymbols, removeRunes(symbolSet(spec), spec.ExcludeCharacters, spec.ExcludeAmbiguous)},
 	}
 
 	var alphabet strings.Builder
@@ -177,7 +177,7 @@ func buildPassword(spec secretsv1beta1.PasswordSpec, r io.Reader) (string, error
 		return "", fmt.Errorf("sum of minimums (%d) exceeds length (%d)", totalMin, spec.Length)
 	}
 
-	allowRepeat := boolValue(spec.AllowRepeat, true)
+	allowRepeat := boolOrTrue(spec.AllowRepeat)
 
 	// Place the required per-class minimums first, then fill the remainder from the
 	// full alphabet, then shuffle so the required characters are not positional.
@@ -793,9 +793,11 @@ func removeRunes(s, exclude string, excludeAmbiguous bool) string {
 	}, s)
 }
 
-func boolValue(p *bool, fallback bool) bool {
+// boolOrTrue dereferences an optional bool, defaulting to true when unset (the
+// default for every PasswordSpec class toggle).
+func boolOrTrue(p *bool) bool {
 	if p == nil {
-		return fallback
+		return true
 	}
 	return *p
 }

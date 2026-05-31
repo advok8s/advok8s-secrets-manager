@@ -295,11 +295,11 @@ func jwtModule(generatedAt time.Time) *starlarkstruct.Module {
 			if err != nil {
 				return nil, err
 			}
-			headerVal, err := toStarlark(map[string]any(header))
+			headerVal, err := toStarlark(header)
 			if err != nil {
 				return nil, err
 			}
-			claimsVal, err := toStarlark(map[string]any(claims))
+			claimsVal, err := toStarlark(claims)
 			if err != nil {
 				return nil, err
 			}

@@ -96,28 +96,28 @@ var _ = BeforeSuite(func() {
 	err = (&SecretCopierReconciler{
 		Client:   k8sManager.GetClient(),
 		Scheme:   k8sManager.GetScheme(),
-		Recorder: k8sManager.GetEventRecorderFor("secretcopier"),
+		Recorder: k8sManager.GetEventRecorderFor("secretcopier"), //nolint:staticcheck // classic events API
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&SecretExporterReconciler{
 		Client:   k8sManager.GetClient(),
 		Scheme:   k8sManager.GetScheme(),
-		Recorder: k8sManager.GetEventRecorderFor("secretexporter"),
+		Recorder: k8sManager.GetEventRecorderFor("secretexporter"), //nolint:staticcheck // classic events API
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&SecretImporterReconciler{
 		Client:   k8sManager.GetClient(),
 		Scheme:   k8sManager.GetScheme(),
-		Recorder: k8sManager.GetEventRecorderFor("secretimporter"),
+		Recorder: k8sManager.GetEventRecorderFor("secretimporter"), //nolint:staticcheck // classic events API
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&SecretInjectorReconciler{
 		Client:   k8sManager.GetClient(),
 		Scheme:   k8sManager.GetScheme(),
-		Recorder: k8sManager.GetEventRecorderFor("secretinjector"),
+		Recorder: k8sManager.GetEventRecorderFor("secretinjector"), //nolint:staticcheck // classic events API
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -127,7 +127,7 @@ var _ = BeforeSuite(func() {
 	err = (&SecretBuilderReconciler{
 		Client:      k8sManager.GetClient(),
 		Scheme:      k8sManager.GetScheme(),
-		Recorder:    k8sManager.GetEventRecorderFor("secretbuilder"),
+		Recorder:    k8sManager.GetEventRecorderFor("secretbuilder"), //nolint:staticcheck // classic events API
 		TokenMinter: &builderpkg.ClientsetTokenMinter{Clientset: clientset},
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())

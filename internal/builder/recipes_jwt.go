@@ -18,6 +18,7 @@ package builder
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -45,9 +46,7 @@ func JWTSign(claims map[string]any, key, alg string, opts JWTOptions) (string, e
 	}
 
 	mc := jwt.MapClaims{}
-	for k, v := range claims {
-		mc[k] = v
-	}
+	maps.Copy(mc, claims)
 	if !opts.IssuedAt.IsZero() {
 		mc["iat"] = opts.IssuedAt.Unix()
 	}

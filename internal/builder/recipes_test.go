@@ -56,10 +56,11 @@ func TestTLSBundle(t *testing.T) {
 }
 
 func TestBasicAuth(t *testing.T) {
-	if got := BasicAuthCredentials("user", "pass"); got != "dXNlcjpwYXNz" {
-		t.Errorf("credentials = %q, want dXNlcjpwYXNz", got)
+	const userPassB64 = "dXNlcjpwYXNz" // base64("user:pass")
+	if got := BasicAuthCredentials("user", "pass"); got != userPassB64 {
+		t.Errorf("credentials = %q, want %q", got, userPassB64)
 	}
-	if got := BasicAuthHeader("user", "pass"); got != "Basic dXNlcjpwYXNz" {
+	if got := BasicAuthHeader("user", "pass"); got != "Basic "+userPassB64 {
 		t.Errorf("header = %q", got)
 	}
 }

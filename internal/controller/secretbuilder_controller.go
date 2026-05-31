@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -137,13 +138,28 @@ func (r *SecretBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if regenEnabled && status.Generated {
 		companionGen, companionAt, companionExists, err = r.loadCompanion(ctx, &builder)
 		if err != nil {
-			return r.fail(ctx, &builder, &status, prev, "GeneratorError", fmt.Errorf("reading companion state: %w", err))
+			return r.fail(ctx, &builder, &status, prev, fmt.Errorf("reading companion state: %w", err))
 		}
 	}
 
 	manualToken := builder.Annotations[sb.RegenerateAnnotation]
 	manualChanged := manualToken != "" && manualToken != status.ObservedRegenerateToken
 
+	action := decideAction(status, regen, outputExists, companionExists, manualChanged, fingerprint, now)
+
+	if action == actionStable {
+		setGenerated(&status, &builder)
+		return r.finish(ctx, &builder, status, prev, rotationRequeue(&status, regen))
+	}
+
+	return r.generateWriteAndFinish(ctx, &builder, &status, prev, resolved,
+		action, companionGen, companionAt, now, fingerprint, manualToken)
+}
+
+// decideAction picks what this reconcile should do, given the current status and
+// what exists (output Secret, companion material) plus any manual trigger.
+func decideAction(status secretsv1beta1.SecretBuilderStatus, regen secretsv1beta1.Regeneration,
+	outputExists, companionExists, manualChanged bool, fingerprint string, now metav1.Time) genAction {
 	rotate := func() genAction {
 		if regen.RotateGenerated || !companionExists {
 			return actionRotateFresh
@@ -151,54 +167,63 @@ func (r *SecretBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return actionRotateKeep
 	}
 
-	var action genAction
 	switch {
 	case !status.Generated:
-		action = actionGenerateFresh
+		return actionGenerateFresh
 	case !outputExists:
 		// The output was deleted. Restore from persisted material when we have it
 		// (no surprise rotation); otherwise (generate-once) regenerate fresh - the
 		// only copy of the entropy went away with the Secret.
 		if companionExists {
-			action = actionRefresh
-		} else {
-			action = actionGenerateFresh
+			return actionRefresh
 		}
+		return actionGenerateFresh
 	case manualChanged:
-		action = rotate()
+		return rotate()
 	case regen.RotateEvery != nil && status.LastGeneratedTime != nil &&
 		!now.Time.Before(status.LastGeneratedTime.Add(regen.RotateEvery.Duration)):
-		action = rotate()
+		return rotate()
 	case regen.OnInputChange && companionExists && fingerprint != status.InputFingerprint:
-		action = actionRefresh
+		return actionRefresh
 	default:
-		action = actionStable
+		return actionStable
 	}
+}
 
-	if action == actionStable {
-		setGenerated(&status, &builder)
-		result := ctrl.Result{}
-		if regen.RotateEvery != nil && status.LastGeneratedTime != nil {
-			next := status.LastGeneratedTime.Add(regen.RotateEvery.Duration)
-			status.NextRotationTime = &metav1.Time{Time: next}
-			if d := time.Until(next); d > 0 {
-				result.RequeueAfter = d
-			} else {
-				result.RequeueAfter = time.Second
-			}
-		}
-		return r.finish(ctx, &builder, status, prev, result)
+// rotationRequeue records the next rotateEvery rotation time on status and returns
+// the requeue delay until then, or a zero Result when rotation is not configured.
+func rotationRequeue(status *secretsv1beta1.SecretBuilderStatus, regen secretsv1beta1.Regeneration) ctrl.Result {
+	if regen.RotateEvery == nil || status.LastGeneratedTime == nil {
+		return ctrl.Result{}
 	}
+	next := status.LastGeneratedTime.Add(regen.RotateEvery.Duration)
+	status.NextRotationTime = &metav1.Time{Time: next}
+	if d := time.Until(next); d > 0 {
+		return ctrl.Result{RequeueAfter: d}
+	}
+	return ctrl.Result{RequeueAfter: time.Second}
+}
+
+// generateWriteAndFinish carries out a non-stable action: it produces (or replays)
+// the generated material, runs the engine, writes the output Secret and companion
+// state, then updates status.
+func (r *SecretBuilderReconciler) generateWriteAndFinish(ctx context.Context,
+	builder *secretsv1beta1.SecretBuilder, status *secretsv1beta1.SecretBuilderStatus, prev prevConditions,
+	resolved *sb.ResolvedInputs, action genAction, companionGen map[string]map[string]any,
+	companionAt time.Time, now metav1.Time, fingerprint, manualToken string) (ctrl.Result, error) {
+	regen := builder.Spec.Regeneration
+	regenEnabled := regen.OnInputChange || regen.RotateEvery != nil
 
 	// Determine the generation time and material for the chosen action.
 	var finalAt metav1.Time
 	var generated map[string]map[string]any
+	var err error
 	switch action {
 	case actionGenerateFresh, actionRotateFresh:
 		finalAt = now
 		generated, err = sb.GenerateAll(builder.Spec.Inputs.Generated, r.randReader(), finalAt.Time, resolved)
 		if err != nil {
-			return r.fail(ctx, &builder, &status, prev, "GeneratorError", err)
+			return r.fail(ctx, builder, status, prev, err)
 		}
 	case actionRotateKeep:
 		finalAt = now
@@ -213,31 +238,16 @@ func (r *SecretBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		resolved.Generated[handle] = attrs
 	}
 
-	engine, err := r.engineFor(&builder)
+	engine, err := r.engineFor(builder)
 	if err != nil {
-		setConditions(&status, builder.Generation, metav1.ConditionFalse, "InvalidInput", err.Error(),
+		setConditions(status, builder.Generation, metav1.ConditionFalse, "InvalidInput", err.Error(),
 			metav1.ConditionTrue, "InvalidInput", err.Error())
-		return r.finish(ctx, &builder, status, prev, ctrl.Result{})
+		return r.finish(ctx, builder, *status, prev, ctrl.Result{})
 	}
 
 	result, err := engine.Render(resolved)
 	if err != nil {
-		var retryErr *sb.RetryError
-		if errors.As(err, &retryErr) {
-			msg := retryErr.Message
-			setConditions(&status, builder.Generation, metav1.ConditionFalse, "AwaitingInput", msg,
-				metav1.ConditionFalse, "AwaitingInput", msg)
-			after := retryErr.After
-			if after <= 0 {
-				after = awaitingRequeue
-			}
-			return r.finish(ctx, &builder, status, prev, ctrl.Result{RequeueAfter: after})
-		}
-		var failErr *sb.FailError
-		if errors.As(err, &failErr) {
-			return r.fail(ctx, &builder, &status, prev, "GeneratorError", failErr)
-		}
-		return r.fail(ctx, &builder, &status, prev, "GeneratorError", err)
+		return r.handleRenderError(ctx, builder, status, prev, err)
 	}
 
 	// Write the output Secret.
@@ -246,7 +256,7 @@ func (r *SecretBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if secretType == "" {
 		secretType = string(builder.Spec.Output.Type)
 	}
-	if err := sb.WriteSecret(ctx, r.Client, r.Scheme, &builder, sb.WriteRequest{
+	if err := sb.WriteSecret(ctx, r.Client, r.Scheme, builder, sb.WriteRequest{
 		Name:        builder.Name,
 		Namespace:   builder.Namespace,
 		Type:        secretType,
@@ -255,14 +265,14 @@ func (r *SecretBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		Data:        result.Data,
 		Revision:    revision,
 	}); err != nil {
-		return r.fail(ctx, &builder, &status, prev, "GeneratorError", err)
+		return r.fail(ctx, builder, status, prev, err)
 	}
 
 	// Persist the companion state so a future refresh/keep-entropy rotation can
 	// replay this exact material and generatedAt.
 	if regenEnabled {
-		if err := r.writeCompanion(ctx, &builder, generated, finalAt.Time); err != nil {
-			return r.fail(ctx, &builder, &status, prev, "GeneratorError", fmt.Errorf("writing companion state: %w", err))
+		if err := r.writeCompanion(ctx, builder, generated, finalAt.Time); err != nil {
+			return r.fail(ctx, builder, status, prev, fmt.Errorf("writing companion state: %w", err))
 		}
 	}
 
@@ -273,19 +283,27 @@ func (r *SecretBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if manualToken != "" {
 		status.ObservedRegenerateToken = manualToken
 	}
-	requeue := ctrl.Result{}
-	if regen.RotateEvery != nil {
-		next := finalAt.Add(regen.RotateEvery.Duration)
-		status.NextRotationTime = &metav1.Time{Time: next}
-		if d := time.Until(next); d > 0 {
-			requeue.RequeueAfter = d
-		} else {
-			requeue.RequeueAfter = time.Second
-		}
-	}
-	setGenerated(&status, &builder)
+	setGenerated(status, builder)
 
-	return r.finish(ctx, &builder, status, prev, requeue)
+	return r.finish(ctx, builder, *status, prev, rotationRequeue(status, regen))
+}
+
+// handleRenderError maps an engine render error to the right terminal condition:
+// a RetryError holds in AwaitingInput and requeues, anything else degrades.
+func (r *SecretBuilderReconciler) handleRenderError(ctx context.Context, builder *secretsv1beta1.SecretBuilder,
+	status *secretsv1beta1.SecretBuilderStatus, prev prevConditions, err error) (ctrl.Result, error) {
+	var retryErr *sb.RetryError
+	if errors.As(err, &retryErr) {
+		msg := retryErr.Message
+		setConditions(status, builder.Generation, metav1.ConditionFalse, "AwaitingInput", msg,
+			metav1.ConditionFalse, "AwaitingInput", msg)
+		after := retryErr.After
+		if after <= 0 {
+			after = awaitingRequeue
+		}
+		return r.finish(ctx, builder, *status, prev, ctrl.Result{RequeueAfter: after})
+	}
+	return r.fail(ctx, builder, status, prev, err)
 }
 
 // loadCompanion reads the persisted generated material and frozen generatedAt.
@@ -324,7 +342,8 @@ func (r *SecretBuilderReconciler) writeCompanion(ctx context.Context, builder *s
 	})
 }
 
-func (r *SecretBuilderReconciler) fail(ctx context.Context, builder *secretsv1beta1.SecretBuilder, status *secretsv1beta1.SecretBuilderStatus, prev prevConditions, reason string, err error) (ctrl.Result, error) {
+func (r *SecretBuilderReconciler) fail(ctx context.Context, builder *secretsv1beta1.SecretBuilder, status *secretsv1beta1.SecretBuilderStatus, prev prevConditions, err error) (ctrl.Result, error) {
+	const reason = "GeneratorError"
 	setConditions(status, builder.Generation, metav1.ConditionFalse, reason, err.Error(),
 		metav1.ConditionTrue, reason, err.Error())
 	return r.finish(ctx, builder, *status, prev, ctrl.Result{})
@@ -513,12 +532,8 @@ func mergeLabels(base, extra map[string]string) map[string]string {
 		return nil
 	}
 	out := map[string]string{}
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range extra {
-		out[k] = v
-	}
+	maps.Copy(out, base)
+	maps.Copy(out, extra)
 	return out
 }
 

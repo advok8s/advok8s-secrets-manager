@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"sort"
 
 	corev1 "k8s.io/api/core/v1"
@@ -68,16 +69,12 @@ func WriteSecret(ctx context.Context, c client.Client, scheme *runtime.Scheme, o
 		if secret.Labels == nil {
 			secret.Labels = map[string]string{}
 		}
-		for k, v := range req.Labels {
-			secret.Labels[k] = v
-		}
+		maps.Copy(secret.Labels, req.Labels)
 
 		if secret.Annotations == nil {
 			secret.Annotations = map[string]string{}
 		}
-		for k, v := range req.Annotations {
-			secret.Annotations[k] = v
-		}
+		maps.Copy(secret.Annotations, req.Annotations)
 		if req.Revision != "" {
 			secret.Annotations[RevisionAnnotation] = req.Revision
 		}
@@ -99,7 +96,7 @@ func RevisionOf(data map[string][]byte) string {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		fmt.Fprintf(h, "%s=", k)
+		_, _ = fmt.Fprintf(h, "%s=", k)
 		h.Write(data[k])
 		h.Write([]byte{0})
 	}

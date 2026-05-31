@@ -50,8 +50,10 @@ func TestSecretSelectorIsEmpty(t *testing.T) {
 			UIDSelector:   &UIDSelector{},
 		}, want: true},
 		{name: "name set", selector: SecretSelector{NameSelector: &NameSelector{MatchNames: []string{"x"}}}, want: false},
-		{name: "labels set", selector: SecretSelector{LabelSelector: &LabelSelector{MatchLabels: map[string]string{"a": "b"}}}, want: false},
-		{name: "owner set", selector: SecretSelector{OwnerSelector: &OwnerSelector{MatchOwners: []OwnerReference{{Name: "o"}}}}, want: false},
+		{name: "labels set", selector: SecretSelector{
+			LabelSelector: &LabelSelector{MatchLabels: map[string]string{"a": "b"}}}, want: false},
+		{name: "owner set", selector: SecretSelector{
+			OwnerSelector: &OwnerSelector{MatchOwners: []OwnerReference{{Name: "o"}}}}, want: false},
 		{name: "uid set", selector: SecretSelector{UIDSelector: &UIDSelector{MatchUids: []string{"u"}}}, want: false},
 	}
 
@@ -134,8 +136,10 @@ func TestSecretSelectorMatches(t *testing.T) {
 			selector: SecretSelector{
 				NameSelector:  &NameSelector{MatchNames: []string{"registry-*"}},
 				LabelSelector: &LabelSelector{MatchLabels: map[string]string{"tier": "frontend"}},
-				OwnerSelector: &OwnerSelector{MatchOwners: []OwnerReference{{APIVersion: "v1", Kind: "ConfigMap", Name: "owner", UID: types.UID("owner-uid")}}},
-				UIDSelector:   &UIDSelector{MatchUids: []string{"uid-123"}},
+				OwnerSelector: &OwnerSelector{MatchOwners: []OwnerReference{
+					{APIVersion: "v1", Kind: "ConfigMap", Name: "owner", UID: types.UID("owner-uid")},
+				}},
+				UIDSelector: &UIDSelector{MatchUids: []string{"uid-123"}},
 			},
 			want: true,
 		},

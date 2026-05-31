@@ -221,25 +221,25 @@ func (in *ResolvedInputs) Fingerprint() string {
 	_ = enc.Encode(in.Context.Annotations)
 
 	for _, handle := range sortedKeys(in.Secrets) {
-		fmt.Fprintf(h, "secret/%s\n", handle)
+		_, _ = fmt.Fprintf(h, "secret/%s\n", handle)
 		for _, s := range bindingSecrets(in.Secrets[handle]) {
-			fmt.Fprintf(h, "%s=%s\n", s.Name, secretRevision(s))
+			_, _ = fmt.Fprintf(h, "%s=%s\n", s.Name, secretRevision(s))
 		}
 	}
 
 	for _, handle := range sortedKeys(in.ConfigMaps) {
-		fmt.Fprintf(h, "configmap/%s\n", handle)
+		_, _ = fmt.Fprintf(h, "configmap/%s\n", handle)
 		for _, c := range bindingConfigMaps(in.ConfigMaps[handle]) {
-			fmt.Fprintf(h, "%s=%s\n", c.Name, configMapRevision(c))
+			_, _ = fmt.Fprintf(h, "%s=%s\n", c.Name, configMapRevision(c))
 		}
 	}
 
 	for _, name := range sortedKeys(in.Libraries) {
-		fmt.Fprintf(h, "library/%s=%s\n", name, hashString(in.Libraries[name]))
+		_, _ = fmt.Fprintf(h, "library/%s=%s\n", name, hashString(in.Libraries[name]))
 	}
 
 	if in.ServiceAccount != nil {
-		fmt.Fprintf(h, "serviceaccount/%s\n", in.ServiceAccount.Name)
+		_, _ = fmt.Fprintf(h, "serviceaccount/%s\n", in.ServiceAccount.Name)
 	}
 
 	return hex.EncodeToString(h.Sum(nil))
@@ -449,7 +449,7 @@ func secretRevision(s *ResolvedSecret) string {
 	}
 	h := sha256.New()
 	for _, k := range sortedKeys(s.Data) {
-		fmt.Fprintf(h, "%s=%s\n", k, s.Data[k])
+		_, _ = fmt.Fprintf(h, "%s=%s\n", k, s.Data[k])
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -460,10 +460,10 @@ func configMapRevision(c *ResolvedConfigMap) string {
 	}
 	h := sha256.New()
 	for _, k := range sortedKeys(c.Data) {
-		fmt.Fprintf(h, "%s=%s\n", k, c.Data[k])
+		_, _ = fmt.Fprintf(h, "%s=%s\n", k, c.Data[k])
 	}
 	for _, k := range sortedKeysBytes(c.BinaryData) {
-		fmt.Fprintf(h, "%s=%x\n", k, c.BinaryData[k])
+		_, _ = fmt.Fprintf(h, "%s=%x\n", k, c.BinaryData[k])
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

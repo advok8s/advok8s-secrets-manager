@@ -139,7 +139,7 @@ func HtpasswdBcrypt(entries []HtpasswdEntry) (string, error) {
 // (base64(sha1(password))). Provided for compatibility; it is unsalted, so prefer
 // bcrypt.
 func HtpasswdSHA(entries []HtpasswdEntry) string {
-	var lines []string
+	lines := make([]string, 0, len(entries))
 	for _, e := range entries {
 		sum := sha1.Sum([]byte(e.Password)) //nolint:gosec // {SHA} scheme is defined as SHA-1
 		lines = append(lines, e.Username+":{SHA}"+base64.StdEncoding.EncodeToString(sum[:]))
@@ -197,11 +197,7 @@ func apr1(password, salt string) string {
 	altSum := alt.Sum(nil)
 
 	for i := len(password); i > 0; i -= 16 {
-		n := 16
-		if i < 16 {
-			n = i
-		}
-		primary.Write(altSum[:n])
+		primary.Write(altSum[:min(16, i)])
 	}
 
 	// Weird length-dependent mixing from the reference.
@@ -216,7 +212,7 @@ func apr1(password, salt string) string {
 	digest := primary.Sum(nil)
 
 	// 1000 strengthening iterations.
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		ctx := md5.New() //nolint:gosec // apr1 is defined in terms of MD5
 		if i&1 == 1 {
 			ctx.Write([]byte(password))
@@ -245,7 +241,7 @@ func apr1Encode(digest []byte) string {
 	var out strings.Builder
 	encode := func(b2, b1, b0 byte, n int) {
 		v := uint(b2)<<16 | uint(b1)<<8 | uint(b0)
-		for i := 0; i < n; i++ {
+		for range n {
 			out.WriteByte(apr1Alphabet[v&0x3f])
 			v >>= 6
 		}

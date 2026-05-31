@@ -117,7 +117,7 @@ func TestTokenPrefixAndAlphabet(t *testing.T) {
 }
 
 func TestRandomIntRange(t *testing.T) {
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		attrs, err := generateRandomInt(secretsv1beta1.RandomIntSpec{Min: -5, Max: 5}, seeded())
 		if err != nil {
 			t.Fatalf("generateRandomInt: %v", err)
