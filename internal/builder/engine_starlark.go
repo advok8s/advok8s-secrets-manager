@@ -17,7 +17,6 @@ limitations under the License.
 package builder
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -104,7 +103,7 @@ func (e *StarlarkEngine) Render(in *ResolvedInputs) (*Result, error) {
 
 	globals, err := starlark.ExecFileOptions(starlarkFileOptions, thread, "secretbuilder.star", e.Script, predeclared)
 	if err != nil {
-		return nil, classifyStarlarkError(err)
+		return nil, classifyEngineError(err)
 	}
 
 	secretVal, ok := globals["secret"]
@@ -117,20 +116,6 @@ func (e *StarlarkEngine) Render(in *ResolvedInputs) (*Result, error) {
 		maxOut = defaultMaxOutputBytes
 	}
 	return parseSecretOutput(secretVal, maxOut)
-}
-
-// classifyStarlarkError unwraps a Starlark evaluation error to surface a script
-// fail()/retry() as the corresponding sentinel; anything else is returned as-is.
-func classifyStarlarkError(err error) error {
-	var fe *FailError
-	if errors.As(err, &fe) {
-		return fe
-	}
-	var re *RetryError
-	if errors.As(err, &re) {
-		return re
-	}
-	return err
 }
 
 func builtinFail(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {

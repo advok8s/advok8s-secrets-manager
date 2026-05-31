@@ -17,9 +17,26 @@ limitations under the License.
 package builder
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
+
+// classifyEngineError surfaces a script/template fail() or retry() as the
+// corresponding sentinel (both engines wrap them in their own evaluation error,
+// which Unwraps); any other error is returned unchanged for the controller to map
+// to GeneratorError.
+func classifyEngineError(err error) error {
+	var fe *FailError
+	if errors.As(err, &fe) {
+		return fe
+	}
+	var re *RetryError
+	if errors.As(err, &re) {
+		return re
+	}
+	return err
+}
 
 // Result is what a generator engine produces: the Secret's data (decoded - the
 // engine works in plaintext, the controller base64-encodes on write), plus any
