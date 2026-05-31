@@ -118,3 +118,20 @@ exact set membership.
 Both are **harmless supersets**: a rule that uses only name / label selectors with
 plain (non-glob) names behaves identically to the Educates operator. The added
 `ownerSelector` / `uidSelector` and glob support only take effect when used.
+
+## SecretBuilder
+
+### Added: a net-new resource with no Educates equivalent
+
+The Educates `secrets-manager` has no builder/generator resource. `SecretBuilder`
+is new in this implementation: a namespaced resource that generates a `Secret`
+named the same as itself by running a Starlark script or gotemplate template over
+declared inputs (constants, referenced Secrets/ConfigMaps, a minted ServiceAccount
+token, and operator-generated random material such as passwords, keys and
+certificates). It is documented in `docs/secret-builder.md`.
+
+Unlike the other resources in this file, there is no original to diverge from, so
+nothing here is a behavioural difference — the whole resource is the addition. It
+shares the family's selector vocabulary (`SecretSelector`) and conventions
+(populated status, `Ready`/`Degraded` conditions, events, ownerReference-based
+garbage collection of its output).

@@ -4,4 +4,5 @@ resources:
 - secrets_v1beta1_secretexporter.yaml
 - secrets_v1beta1_secretimporter.yaml
 - secrets_v1beta1_secretinjector.yaml
+- secrets_v1beta1_secretbuilder.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

@@ -30,6 +30,12 @@ Prerequisites: the CRDs installed (`make install`) and the operator running
 | [secretexporter-basic.yaml](secretexporter-basic.yaml) | A namespaced SecretExporter exporting its like-named secret to a target namespace that consents via a SecretImporter; the importer owns the copy (deleting it garbage-collects the copy). |
 | [secretexporter-source-namespaces.yaml](secretexporter-source-namespaces.yaml) | A SecretImporter that further restricts which source namespaces it accepts, plus target renaming; one of two competing exporters is refused. |
 | [secretinjector-serviceaccount.yaml](secretinjector-serviceaccount.yaml) | A SecretInjector adding an image pull secret to a named (non-default) ServiceAccount's imagePullSecrets, leaving the default service account untouched. |
+| [secretbuilder-derive.yaml](secretbuilder-derive.yaml) | A SecretBuilder deriving a connection string from an existing Secret (no generated material; output is a pure function of the input). |
+| [secretbuilder-password-htpasswd.yaml](secretbuilder-password-htpasswd.yaml) | A SecretBuilder generating a password and using it three ways: plaintext, a bcrypt htpasswd entry, and an HTTP Basic header. |
+| [secretbuilder-tls.yaml](secretbuilder-tls.yaml) | A SecretBuilder generating a CA and a CA-signed TLS leaf, publishing a fullchain `tls.crt` (type `kubernetes.io/tls`). |
+| [secretbuilder-jwt.yaml](secretbuilder-jwt.yaml) | A SecretBuilder signing a JWT with a generated RSA key, rotated before expiry (`rotateEvery`) while keeping the signing key. |
+| [secretbuilder-template.yaml](secretbuilder-template.yaml) | A SecretBuilder using the gotemplate engine (`template:`) with Sprig functions instead of a Starlark script. |
+| [secretbuilder-chaining.yaml](secretbuilder-chaining.yaml) | Two chained SecretBuilders: an upstream password change propagates to a downstream builder via `onInputChange`. |
 
 Each file's header comment lists the exact apply / verify / clean-up commands
 for that scenario.
