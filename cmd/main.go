@@ -27,6 +27,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -36,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	"github.com/advok8s/advok8s-secrets-manager/internal/builder"
 	"github.com/advok8s/advok8s-secrets-manager/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
@@ -79,6 +81,9 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	var clusterAPIServer string
+	flag.StringVar(&clusterAPIServer, "cluster-api-server", "",
+		"External API server URL exposed to SecretBuilder as serviceAccount.cluster.server (not reliably discoverable in-cluster).")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -208,6 +213,21 @@ func main() {
 		Recorder: mgr.GetEventRecorderFor("secretinjector"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "secretinjector")
+		os.Exit(1)
+	}
+	clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		setupLog.Error(err, "Failed to create clientset for token minting")
+		os.Exit(1)
+	}
+	if err := (&controller.SecretBuilderReconciler{
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		Recorder:      mgr.GetEventRecorderFor("secretbuilder"),
+		TokenMinter:   &builder.ClientsetTokenMinter{Clientset: clientset},
+		ClusterServer: clusterAPIServer,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "secretbuilder")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
