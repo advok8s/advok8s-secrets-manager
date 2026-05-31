@@ -175,8 +175,42 @@ func configMapToMap(c *ResolvedConfigMap) map[string]any {
 
 // templateFuncMap is Sprig plus outcome funcs (fail/retry/retryAfter/required) and
 // the recipe functions (underscore-named, gotemplate's flat-namespace convention).
+// nonDeterministicSprigFuncs lists the Sprig template functions disabled to keep
+// generation deterministic: those that read the wall clock (now/ago, and the date
+// formatters that fall back to now when given an empty argument; durationRound
+// reads the clock when given a time), use randomness (rand*, uuidv4, shuffle), or
+// generate keys/certs/hashes with fresh entropy (gen*, bcrypt, htpasswd). Random
+// material comes from inputs.generated; the frozen build time is
+// .context.generatedAt (a time.Time, formattable via its .Format/.Unix methods).
+// Deterministic date helpers that operate on a supplied value (toDate, dateModify,
+// duration, unixEpoch) and derivePassword/buildCustomCert remain available.
+var nonDeterministicSprigFuncs = []string{
+	"now", "ago", "date", "dateInZone", "htmlDate", "htmlDateInZone", "durationRound",
+	"randAlphaNum", "randAlpha", "randAscii", "randNumeric", "randBytes", "randInt",
+	"uuidv4", "shuffle",
+	"genPrivateKey", "genCA", "genCAWithKey",
+	"genSelfSignedCert", "genSelfSignedCertWithKey",
+	"genSignedCert", "genSignedCertWithKey",
+	"bcrypt", "htpasswd",
+}
+
+// disabledTemplateFunc returns a stub that errors when called, used to neutralise a
+// non-deterministic Sprig function while keeping a clear message.
+func disabledTemplateFunc(name string) func(...any) (any, error) {
+	return func(...any) (any, error) {
+		return nil, fmt.Errorf("template function %q is disabled to keep generation deterministic; "+
+			"use inputs.generated for random material and .context.generatedAt for time", name)
+	}
+}
+
 func templateFuncMap(in *ResolvedInputs) template.FuncMap {
 	funcs := sprig.TxtFuncMap()
+
+	// Enforce determinism: neutralise Sprig's clock/randomness/entropy functions so
+	// a template cannot make the output churn between reconciles.
+	for _, name := range nonDeterministicSprigFuncs {
+		funcs[name] = disabledTemplateFunc(name)
+	}
 
 	funcs["fail"] = func(message string) (string, error) { return "", &FailError{Message: message} }
 	funcs["retry"] = func(message string) (string, error) { return "", &RetryError{Message: message} }

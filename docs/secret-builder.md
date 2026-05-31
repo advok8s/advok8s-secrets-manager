@@ -545,11 +545,18 @@ one gap Sprig leaves, YAML, is filled with ``toYaml`` (a value → YAML string, 
 Helm convention of trimming the trailing newline) and ``fromYaml`` (a YAML string
 → value).
 
-> **Determinism caveat for templates.** Sprig includes non-deterministic
-> functions (``now``, ``randAlphaNum``, ``uuidv4``, …). Using them defeats the
-> determinism guarantee and will cause spurious changes on every reconcile — use
-> ``inputs.generated`` for randomness and ``.context.generatedAt`` for time
-> instead.
+> **Determinism is enforced for templates.** Sprig's non-deterministic functions
+> are **disabled** and error if used: the wall-clock readers (``now``, ``ago``, and
+> the now-falling-back date formatters ``date``/``dateInZone``/``htmlDate``/
+> ``htmlDateInZone``/``durationRound``), the randomness functions (``randAlphaNum``,
+> ``randAlpha``, ``randAscii``, ``randNumeric``, ``randBytes``, ``randInt``,
+> ``uuidv4``, ``shuffle``), and the entropy-using generators (``genPrivateKey``,
+> ``genCA*``, ``gen*Cert*``, ``bcrypt``, ``htpasswd``). Use ``inputs.generated`` for
+> random material and ``.context.generatedAt`` for time — it is a ``time.Time``, so
+> format it with its methods, e.g. ``{{ .context.generatedAt.Format "2006-01-02" }}``
+> or ``{{ .context.generatedAt.Unix }}``. Deterministic Sprig helpers that operate
+> on a supplied value (``toDate``, ``dateModify``, ``duration``, ``unixEpoch``,
+> ``derivePassword``, …) remain available.
 
 Recipes
 -------

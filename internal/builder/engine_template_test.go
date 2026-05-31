@@ -166,6 +166,37 @@ func TestTemplateTypeAndLabels(t *testing.T) {
 	}
 }
 
+func TestTemplateDeterminismEnforced(t *testing.T) {
+	// Non-deterministic Sprig funcs are disabled and error when used.
+	for _, src := range []string{
+		`{{ now }}`,
+		`{{ uuidv4 }}`,
+		`{{ randAlphaNum 8 }}`,
+		`{{ ago .context.generatedAt }}`,
+		`{{ genPrivateKey "rsa" }}`,
+	} {
+		if _, err := renderTemplate(t, map[string]string{"x": src}); err == nil {
+			t.Errorf("expected an error for non-deterministic template %q, got none", src)
+		}
+	}
+
+	// Deterministic Sprig funcs still work, and the frozen build time is formattable
+	// via the time.Time method (fixedTime = 2023-11-14).
+	res, err := renderTemplate(t, map[string]string{
+		"up": `{{ upper "hi" }}`,
+		"ts": `{{ .context.generatedAt.Format "2006" }}`,
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if string(res.Data["up"]) != "HI" {
+		t.Errorf("upper = %q", res.Data["up"])
+	}
+	if string(res.Data["ts"]) != "2023" {
+		t.Errorf("generatedAt year = %q, want 2023", res.Data["ts"])
+	}
+}
+
 func TestTemplateKubeconfigFuncs(t *testing.T) {
 	in := sampleInputs()
 	in.ServiceAccount = &ResolvedServiceAccount{
