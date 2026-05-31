@@ -457,11 +457,23 @@ type SecretBuilderGenerator struct {
 	Template *TemplateGenerator `json:"template,omitempty"`
 }
 
-// TemplateGenerator holds a per-key map of gotemplate templates.
+// TemplateGenerator holds a per-key map of gotemplate templates, with optional
+// type and labels (the gotemplate analogue of the Starlark secret = {data, type,
+// labels} global). type and each label value are themselves gotemplates, so a
+// plain literal works and a computed value is possible.
 type TemplateGenerator struct {
 	// data maps each output Secret data key to a gotemplate producing its value.
 	// +required
 	Data map[string]string `json:"data"`
+
+	// type optionally overrides spec.output.type. It is rendered as a gotemplate.
+	// +optional
+	Type string `json:"type,omitempty"`
+
+	// labels are merged onto the output Secret (over spec.output.labels). Each
+	// value is rendered as a gotemplate.
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // Regeneration controls if and when the Secret is rebuilt. The zero value means

@@ -455,14 +455,20 @@ secret = {
 (A single ``secret`` dict rather than separate globals, because a global ``type``
 would shadow Starlark's ``type()`` builtin.)
 
-A ``template`` is a per-key map of templates producing the data values; ``type``
-and ``labels`` come from ``spec.output`` (the template engine produces ``data``
-only). Each value renders as plaintext and is base64-encoded by the operator:
+A ``template`` is a per-key map of ``data`` templates, with optional ``type`` and
+``labels`` — the gotemplate analogue of the Starlark ``secret`` global. Each data
+value renders as plaintext and is base64-encoded by the operator. ``type`` and
+each ``labels`` value are themselves gotemplates (so a literal works and a
+computed value is possible); as in a script, ``type`` overrides ``spec.output.type``
+and ``labels`` merge over ``spec.output.labels``:
 
 ```yaml
 spec:
   generator:
     template:
+      type: Opaque                                 # optional; a gotemplate
+      labels:
+        app: '{{ .constants.appName }}'            # optional; gotemplate values
       data:
         message: '{{ .constants.greeting }} from {{ .constants.env }}'
         encoded: '{{ .constants.greeting | b64enc }}'

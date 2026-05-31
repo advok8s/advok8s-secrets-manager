@@ -401,7 +401,7 @@ func (r *SecretBuilderReconciler) engineFor(builder *secretsv1beta1.SecretBuilde
 	case g.Script != nil:
 		return sb.NewStarlarkEngine(*g.Script), nil
 	case g.Template != nil:
-		return sb.NewTemplateEngine(g.Template.Data), nil
+		return &sb.TemplateEngine{Data: g.Template.Data, Type: g.Template.Type, Labels: g.Template.Labels}, nil
 	default:
 		return nil, fmt.Errorf("generator sets neither script nor template")
 	}

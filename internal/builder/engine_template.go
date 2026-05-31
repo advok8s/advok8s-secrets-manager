@@ -19,7 +19,6 @@ package builder
 import (
 	"bytes"
 	"fmt"
-	"sort"
 	"strings"
 	"text/template"
 	"time"
@@ -35,14 +34,18 @@ import (
 // an absent key a generation error rather than emitting "<no value>".
 type TemplateEngine struct {
 	Data           map[string]string // output key -> template source
+	Type           string            // optional gotemplate for the Secret type
+	Labels         map[string]string // optional label-value gotemplates
 	MaxOutputBytes int
 }
 
 // NewTemplateEngine returns an engine for the given per-key template map.
 func NewTemplateEngine(data map[string]string) *TemplateEngine { return &TemplateEngine{Data: data} }
 
-// Render executes each key's template. Labels and type are not produced here (the
-// per-key data model has no place for them); the controller applies spec.output.
+// Render executes each data-key template, plus the optional type and label
+// templates. type overrides spec.output.type and labels merge over
+// spec.output.labels (the controller applies that merge), mirroring the Starlark
+// secret = {data, type, labels} contract.
 func (e *TemplateEngine) Render(in *ResolvedInputs) (*Result, error) {
 	ctx := buildTemplateContext(in)
 	funcs := templateFuncMap(in)
@@ -52,29 +55,47 @@ func (e *TemplateEngine) Render(in *ResolvedInputs) (*Result, error) {
 		maxOut = defaultMaxOutputBytes
 	}
 
-	result := &Result{Data: map[string][]byte{}, Labels: map[string]string{}}
-	total := 0
-
-	keys := make([]string, 0, len(e.Data))
-	for k := range e.Data {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	for _, key := range keys {
-		tmpl, err := template.New(key).Funcs(funcs).Option("missingkey=error").Parse(e.Data[key])
+	render := func(name, src string) (string, error) {
+		tmpl, err := template.New(name).Funcs(funcs).Option("missingkey=error").Parse(src)
 		if err != nil {
-			return nil, fmt.Errorf("template[%q]: parse: %w", key, err)
+			return "", fmt.Errorf("template[%q]: parse: %w", name, err)
 		}
 		var buf bytes.Buffer
 		if err := tmpl.Execute(&buf, ctx); err != nil {
-			return nil, classifyEngineError(err)
+			return "", classifyEngineError(err)
 		}
-		total += buf.Len()
+		return buf.String(), nil
+	}
+
+	result := &Result{Data: map[string][]byte{}, Labels: map[string]string{}}
+	total := 0
+
+	for _, key := range sortedKeys(e.Data) {
+		out, err := render("data."+key, e.Data[key])
+		if err != nil {
+			return nil, err
+		}
+		total += len(out)
 		if total > maxOut {
 			return nil, fmt.Errorf("generated Secret data exceeds %d bytes", maxOut)
 		}
-		result.Data[key] = append([]byte(nil), buf.Bytes()...)
+		result.Data[key] = []byte(out)
+	}
+
+	if e.Type != "" {
+		t, err := render("type", e.Type)
+		if err != nil {
+			return nil, err
+		}
+		result.Type = t
+	}
+
+	for _, key := range sortedKeys(e.Labels) {
+		v, err := render("labels."+key, e.Labels[key])
+		if err != nil {
+			return nil, err
+		}
+		result.Labels[key] = v
 	}
 
 	return result, nil

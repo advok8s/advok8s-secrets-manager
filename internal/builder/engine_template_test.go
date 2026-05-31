@@ -147,6 +147,24 @@ func TestTemplateOutputCap(t *testing.T) {
 	}
 }
 
+func TestTemplateTypeAndLabels(t *testing.T) {
+	engine := &TemplateEngine{
+		Data:   map[string]string{"k": "v"},
+		Type:   `kubernetes.io/{{ .constants.greeting }}`,
+		Labels: map[string]string{"team": `{{ .context.labels.team }}`, "static": "x"},
+	}
+	result, err := engine.Render(sampleInputs())
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if result.Type != "kubernetes.io/hello" {
+		t.Errorf("type = %q, want %q", result.Type, "kubernetes.io/hello")
+	}
+	if result.Labels["team"] != "platform" || result.Labels["static"] != "x" {
+		t.Errorf("labels = %v", result.Labels)
+	}
+}
+
 func TestTemplateYAMLFuncs(t *testing.T) {
 	result, err := renderTemplate(t, map[string]string{
 		"roundtrip": `{{ "foo: bar" | fromYaml | toYaml }}`,
