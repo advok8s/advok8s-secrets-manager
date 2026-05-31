@@ -21,6 +21,7 @@ import (
 	"time"
 
 	starlarkjson "go.starlark.net/lib/json"
+	starlarktime "go.starlark.net/lib/time"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 	"go.starlark.net/syntax"
@@ -69,6 +70,7 @@ func (e *StarlarkEngine) Render(in *ResolvedInputs) (*Result, error) {
 		"fail":         starlark.NewBuiltin("fail", builtinFail),
 		"retry":        starlark.NewBuiltin("retry", builtinRetry),
 		"json":         starlarkjson.Module,
+		"time":         timeModule(),
 		"yaml":         yamlModule(),
 		"base64":       base64Module(),
 		"hex":          hexModule(),
@@ -241,13 +243,12 @@ func buildInputValue(in *ResolvedInputs) (*starlarkstruct.Struct, error) {
 	}
 
 	context := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"namespace":       starlark.String(in.Context.Namespace),
-		"name":            starlark.String(in.Context.Name),
-		"labels":          dictFromStringMap(in.Context.Labels),
-		"annotations":     dictFromStringMap(in.Context.Annotations),
-		"uid":             starlark.String(in.Context.UID),
-		"generatedAt":     starlark.String(in.Context.GeneratedAt.UTC().Format(time.RFC3339)),
-		"generatedAtUnix": starlark.MakeInt64(in.Context.GeneratedAt.Unix()),
+		"namespace":   starlark.String(in.Context.Namespace),
+		"name":        starlark.String(in.Context.Name),
+		"labels":      dictFromStringMap(in.Context.Labels),
+		"annotations": dictFromStringMap(in.Context.Annotations),
+		"uid":         starlark.String(in.Context.UID),
+		"generatedAt": starlarktime.Time(in.Context.GeneratedAt.UTC()),
 	})
 
 	secrets := starlark.StringDict{}

@@ -28,6 +28,7 @@ import (
 	"regexp"
 	"time"
 
+	starlarktime "go.starlark.net/lib/time"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 	"sigs.k8s.io/yaml"
@@ -40,6 +41,24 @@ import (
 
 func module(name string, members starlark.StringDict) *starlarkstruct.Module {
 	return &starlarkstruct.Module{Name: name, Members: members}
+}
+
+// timeModule is go.starlark.net's time module with now() removed. now() is the
+// only member that reads the wall clock; everything else (parse_duration, the
+// duration constants, parse_time, from_timestamp, the time() constructor,
+// is_valid_timezone) operates on explicit input, so the result is deterministic.
+// This gives scripts duration arithmetic on input.context.generatedAt (a
+// time.Time) - e.g. `input.context.generatedAt + time.parse_duration("1h")` -
+// without any access to the current time.
+func timeModule() *starlarkstruct.Module {
+	members := make(starlark.StringDict, len(starlarktime.Module.Members))
+	for name, v := range starlarktime.Module.Members {
+		if name == "now" {
+			continue
+		}
+		members[name] = v
+	}
+	return module("time", members)
 }
 
 // hashModule exposes deterministic digests over a string or bytes value, each

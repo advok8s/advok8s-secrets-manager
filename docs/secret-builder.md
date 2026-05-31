@@ -130,12 +130,23 @@ ingress or cluster domain, which should be supplied through ``inputs.constants``
 | ``input.context.labels`` | ``.context.labels`` | the SecretBuilder's labels (map) |
 | ``input.context.annotations`` | ``.context.annotations`` | the SecretBuilder's annotations (map) |
 | ``input.context.uid`` | ``.context.uid`` | the SecretBuilder UID (changes on delete/recreate — using it risks churn) |
-| ``input.context.generatedAt`` | ``.context.generatedAt`` | the frozen generation time (see Determinism) |
-| ``input.context.generatedAtUnix`` | — | the same time as epoch seconds (int) |
+| ``input.context.generatedAt`` | ``.context.generatedAt`` | the frozen generation time, a ``time.Time`` (see Determinism) |
 
-In Starlark, ``generatedAt`` is an RFC 3339 string (UTC) and ``generatedAtUnix``
-is the epoch-second integer for arithmetic. In gotemplate, ``.context.generatedAt``
-is a Go ``time.Time`` (format it with Sprig's ``date``, or take ``.Unix``).
+``generatedAt`` is a **time value** in both engines, so it carries methods rather
+than being a bare string:
+
+- **Starlark** — a ``time.Time`` from the predeclared ``time`` module: format with
+  ``input.context.generatedAt.format("2006-01-02T15:04:05Z07:00")`` (Go reference
+  layout), read ``.unix`` (epoch seconds), ``.year`` / ``.month`` / ``.day`` /
+  ``.hour`` / ``.minute`` / ``.second``, and do duration arithmetic —
+  ``input.context.generatedAt + time.parse_duration("1h")`` or
+  ``... + time.hour``. The ``time`` module is deterministic: it exposes
+  ``parse_duration``, ``parse_time``, ``from_timestamp``, ``time(...)``,
+  ``is_valid_timezone`` and the duration constants (``time.second`` … ``time.hour``)
+  but **not ``time.now()``** — the wall clock is never reachable.
+- **gotemplate** — a Go ``time.Time``: ``{{ .context.generatedAt.Format "2006-01-02" }}``,
+  ``{{ .context.generatedAt.Unix }}``, and ``{{ dateModify "1h" .context.generatedAt }}``
+  for arithmetic.
 
 Inputs: existing Secrets and ConfigMaps
 ---------------------------------------
@@ -513,6 +524,7 @@ lower-level **primitive modules** are:
 | ``hash`` | ``hash.sha256(value)``, ``hash.sha512(value)``, ``hash.sha1(value)`` → hex str; ``hash.hmac_sha256(key, value)`` → hex str |
 | ``regexp`` | ``regexp.match(pattern, str)`` → bool, ``regexp.replace(pattern, str, repl)`` → str, ``regexp.find_all(pattern, str)`` → [str] (RE2 syntax) |
 | ``url`` | ``url.query_escape(value)`` / ``query_unescape(value)`` / ``path_escape(value)`` / ``path_unescape(value)`` |
+| ``time`` | ``time.parse_duration(s)``, ``time.parse_time(s, fmt?, loc?)``, ``time.from_timestamp(sec)``, ``time.time(year=…, …)``, ``time.is_valid_timezone(loc)``, and the duration constants ``time.second`` … ``time.hour``. **No ``time.now()``** — time comes only from ``input.context.generatedAt``. |
 
 ``encode``/``decode`` and the ``base64``/``hex`` helpers accept a string or
 ``bytes``; ``json``/``yaml`` ``decode`` numbers come back as floats. These are for
@@ -522,8 +534,8 @@ blob as one Secret value) — the Secret envelope itself is encoded by the opera
 Plus all Starlark language built-ins (``len``, ``range``, ``enumerate``,
 ``sorted``, ``min``, ``max``, ``sum``, ``any``, ``all``, ``str``, ``int``,
 ``dict``, ``list``, comprehensions, and the string/list/dict methods). There is no
-``print``/I/O, and no clock module — time comes only from
-``input.context.generatedAt``.
+``print``/I/O and no live clock — the ``time`` module deliberately omits
+``time.now()``, so time only ever comes from ``input.context.generatedAt``.
 
 ### gotemplate: dot context and functions
 

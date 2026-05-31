@@ -170,6 +170,46 @@ secret = {"data": {"out": shout("hi")}}
 	}
 }
 
+func TestStarlarkGeneratedAtTimeValue(t *testing.T) {
+	// generatedAt is a time.Time value: format, epoch, components and duration
+	// arithmetic all work, with no clock module function. fixedTime = 1700000000
+	// = 2023-11-14T22:13:20Z.
+	script := `
+gen = input.context.generatedAt
+secret = {"data": {
+  "fmt":   gen.format("2006-01-02"),
+  "unix":  str(gen.unix),
+  "year":  str(gen.year),
+  "plus":  str((gen + time.parse_duration("1h")).unix),
+  "const": str((gen + time.hour).unix),
+}}
+`
+	result, err := render(t, script)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	want := map[string]string{
+		"fmt":   "2023-11-14",
+		"unix":  "1700000000",
+		"year":  "2023",
+		"plus":  "1700003600", // +1h
+		"const": "1700003600", // +1h via constant
+	}
+	for k, v := range want {
+		if string(result.Data[k]) != v {
+			t.Errorf("data[%q] = %q, want %q", k, result.Data[k], v)
+		}
+	}
+}
+
+func TestStarlarkNoClock(t *testing.T) {
+	// time.now() must not exist - the wall clock is never reachable.
+	_, err := render(t, `secret = {"data": {"x": str(time.now())}}`)
+	if err == nil {
+		t.Fatal("expected an error: time.now() must be unavailable")
+	}
+}
+
 func TestStarlarkKubeconfigRecipes(t *testing.T) {
 	in := sampleInputs()
 	in.ServiceAccount = &ResolvedServiceAccount{
