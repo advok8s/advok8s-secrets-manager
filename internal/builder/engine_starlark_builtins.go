@@ -17,12 +17,20 @@ limitations under the License.
 package builder
 
 import (
+	"crypto/hmac"
+	"crypto/sha1" //nolint:gosec // sha1 offered for non-security digests (parity with Sprig sha1sum)
+	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
+	"net/url"
+	"regexp"
 	"time"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
+	"sigs.k8s.io/yaml"
 )
 
 // This file binds the Go recipe functions and base64 primitive as Starlark
@@ -32,6 +40,184 @@ import (
 
 func module(name string, members starlark.StringDict) *starlarkstruct.Module {
 	return &starlarkstruct.Module{Name: name, Members: members}
+}
+
+// hashModule exposes deterministic digests over a string or bytes value, each
+// returning a lowercase hex string. hmac_sha256 takes a key and the value.
+func hashModule() *starlarkstruct.Module {
+	digest := func(name string, sum func([]byte) []byte) *starlark.Builtin {
+		return starlark.NewBuiltin(name, func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+			var v starlark.Value
+			if err := starlark.UnpackArgs(name, args, kwargs, "value", &v); err != nil {
+				return nil, err
+			}
+			b, err := starlarkToBytes(v)
+			if err != nil {
+				return nil, err
+			}
+			return starlark.String(hex.EncodeToString(sum(b))), nil
+		})
+	}
+	return module("hash", starlark.StringDict{
+		"sha256": digest("hash.sha256", func(b []byte) []byte { s := sha256.Sum256(b); return s[:] }),
+		"sha512": digest("hash.sha512", func(b []byte) []byte { s := sha512.Sum512(b); return s[:] }),
+		"sha1":   digest("hash.sha1", func(b []byte) []byte { s := sha1.Sum(b); return s[:] }), //nolint:gosec // non-security digest
+		"hmac_sha256": starlark.NewBuiltin("hash.hmac_sha256", func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+			var keyVal, v starlark.Value
+			if err := starlark.UnpackArgs("hash.hmac_sha256", args, kwargs, "key", &keyVal, "value", &v); err != nil {
+				return nil, err
+			}
+			key, err := starlarkToBytes(keyVal)
+			if err != nil {
+				return nil, err
+			}
+			data, err := starlarkToBytes(v)
+			if err != nil {
+				return nil, err
+			}
+			mac := hmac.New(sha256.New, key)
+			mac.Write(data)
+			return starlark.String(hex.EncodeToString(mac.Sum(nil))), nil
+		}),
+	})
+}
+
+// hexModule encodes a string/bytes value to a hex string and decodes a hex string
+// to bytes (mirroring base64).
+func hexModule() *starlarkstruct.Module {
+	return module("hex", starlark.StringDict{
+		"encode": starlark.NewBuiltin("hex.encode", func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+			var v starlark.Value
+			if err := starlark.UnpackArgs("hex.encode", args, kwargs, "value", &v); err != nil {
+				return nil, err
+			}
+			b, err := starlarkToBytes(v)
+			if err != nil {
+				return nil, err
+			}
+			return starlark.String(hex.EncodeToString(b)), nil
+		}),
+		"decode": starlark.NewBuiltin("hex.decode", func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+			var s string
+			if err := starlark.UnpackArgs("hex.decode", args, kwargs, "value", &s); err != nil {
+				return nil, err
+			}
+			decoded, err := hex.DecodeString(s)
+			if err != nil {
+				return nil, fmt.Errorf("hex.decode: %w", err)
+			}
+			return starlark.Bytes(decoded), nil
+		}),
+	})
+}
+
+// regexpModule offers match/replace/find_all over RE2 patterns (Go regexp).
+func regexpModule() *starlarkstruct.Module {
+	return module("regexp", starlark.StringDict{
+		"match": starlark.NewBuiltin("regexp.match", func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+			var pattern, s string
+			if err := starlark.UnpackArgs("regexp.match", args, kwargs, "pattern", &pattern, "str", &s); err != nil {
+				return nil, err
+			}
+			re, err := regexp.Compile(pattern)
+			if err != nil {
+				return nil, fmt.Errorf("regexp.match: %w", err)
+			}
+			return starlark.Bool(re.MatchString(s)), nil
+		}),
+		"replace": starlark.NewBuiltin("regexp.replace", func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+			var pattern, s, repl string
+			if err := starlark.UnpackArgs("regexp.replace", args, kwargs, "pattern", &pattern, "str", &s, "repl", &repl); err != nil {
+				return nil, err
+			}
+			re, err := regexp.Compile(pattern)
+			if err != nil {
+				return nil, fmt.Errorf("regexp.replace: %w", err)
+			}
+			return starlark.String(re.ReplaceAllString(s, repl)), nil
+		}),
+		"find_all": starlark.NewBuiltin("regexp.find_all", func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+			var pattern, s string
+			if err := starlark.UnpackArgs("regexp.find_all", args, kwargs, "pattern", &pattern, "str", &s); err != nil {
+				return nil, err
+			}
+			re, err := regexp.Compile(pattern)
+			if err != nil {
+				return nil, fmt.Errorf("regexp.find_all: %w", err)
+			}
+			matches := re.FindAllString(s, -1)
+			items := make([]starlark.Value, len(matches))
+			for i, m := range matches {
+				items[i] = starlark.String(m)
+			}
+			return starlark.NewList(items), nil
+		}),
+	})
+}
+
+// urlModule wraps net/url query/path escaping for building URLs from input values.
+func urlModule() *starlarkstruct.Module {
+	escaper := func(name string, fn func(string) string) *starlark.Builtin {
+		return starlark.NewBuiltin(name, func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+			var s string
+			if err := starlark.UnpackArgs(name, args, kwargs, "value", &s); err != nil {
+				return nil, err
+			}
+			return starlark.String(fn(s)), nil
+		})
+	}
+	unescaper := func(name string, fn func(string) (string, error)) *starlark.Builtin {
+		return starlark.NewBuiltin(name, func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+			var s string
+			if err := starlark.UnpackArgs(name, args, kwargs, "value", &s); err != nil {
+				return nil, err
+			}
+			out, err := fn(s)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", name, err)
+			}
+			return starlark.String(out), nil
+		})
+	}
+	return module("url", starlark.StringDict{
+		"query_escape":   escaper("url.query_escape", url.QueryEscape),
+		"query_unescape": unescaper("url.query_unescape", url.QueryUnescape),
+		"path_escape":    escaper("url.path_escape", url.PathEscape),
+		"path_unescape":  unescaper("url.path_unescape", url.PathUnescape),
+	})
+}
+
+// yamlModule encodes a value to YAML and decodes YAML to a value, via
+// sigs.k8s.io/yaml (YAML<->JSON) so decoded maps carry string keys.
+func yamlModule() *starlarkstruct.Module {
+	return module("yaml", starlark.StringDict{
+		"encode": starlark.NewBuiltin("yaml.encode", func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+			var v starlark.Value
+			if err := starlark.UnpackArgs("yaml.encode", args, kwargs, "value", &v); err != nil {
+				return nil, err
+			}
+			decoded, err := fromStarlark(v)
+			if err != nil {
+				return nil, err
+			}
+			out, err := yaml.Marshal(decoded)
+			if err != nil {
+				return nil, fmt.Errorf("yaml.encode: %w", err)
+			}
+			return starlark.String(out), nil
+		}),
+		"decode": starlark.NewBuiltin("yaml.decode", func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+			var s string
+			if err := starlark.UnpackArgs("yaml.decode", args, kwargs, "value", &s); err != nil {
+				return nil, err
+			}
+			var decoded any
+			if err := yaml.Unmarshal([]byte(s), &decoded); err != nil {
+				return nil, fmt.Errorf("yaml.decode: %w", err)
+			}
+			return toStarlark(decoded)
+		}),
+	})
 }
 
 func base64Module() *starlarkstruct.Module {

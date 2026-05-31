@@ -179,3 +179,47 @@ func TestStarlarkRecipeWiring(t *testing.T) {
 		t.Errorf("basicauth.credentials = %q", result.Data["auth"])
 	}
 }
+
+func TestStarlarkPrimitiveModules(t *testing.T) {
+	script := `
+matches = regexp.find_all(pattern = "[0-9]+", str = "a1b22c333")
+decoded = yaml.decode("foo: bar\nnum: 7")
+secret = {"data": {
+  "sha256":  hash.sha256("abc"),
+  "hmac":    hash.hmac_sha256(key = "key", value = "The quick brown fox jumps over the lazy dog"),
+  "hex":     hex.encode("abc"),
+  "unhex":   hex.decode("616263"),
+  "match":   str(regexp.match(pattern = "^a", str = "abc")),
+  "replace": regexp.replace(pattern = "a.c", str = "abc", repl = "X"),
+  "findall": ",".join(matches),
+  "qesc":    url.query_escape("a b&c"),
+  "pesc":    url.path_escape("a b"),
+  "yamlkey": decoded["foo"],
+  "yamlnum": str(int(decoded["num"])),
+  "yamlenc": yaml.encode({"a": 1}).strip(),
+}}
+`
+	result, err := render(t, script)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	want := map[string]string{
+		"sha256":  "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+		"hmac":    "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8",
+		"hex":     "616263",
+		"unhex":   "abc",
+		"match":   "True",
+		"replace": "X",
+		"findall": "1,22,333",
+		"qesc":    "a+b%26c",
+		"pesc":    "a%20b",
+		"yamlkey": "bar",
+		"yamlnum": "7",
+		"yamlenc": "a: 1",
+	}
+	for k, v := range want {
+		if string(result.Data[k]) != v {
+			t.Errorf("data[%q] = %q, want %q", k, result.Data[k], v)
+		}
+	}
+}

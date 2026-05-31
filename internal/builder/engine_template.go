@@ -20,10 +20,12 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
+	"strings"
 	"text/template"
 	"time"
 
 	"github.com/Masterminds/sprig/v3"
+	"sigs.k8s.io/yaml"
 )
 
 // TemplateEngine renders a per-key map of gotemplate templates. The dot context
@@ -169,6 +171,24 @@ func templateFuncMap(in *ResolvedInputs) template.FuncMap {
 			return nil, fmt.Errorf("%s", message)
 		}
 		return value, nil
+	}
+
+	// Sprig provides toJson/fromJson but not YAML; add them over sigs.k8s.io/yaml
+	// (YAML<->JSON) so decoded maps carry string keys usable with template field
+	// access. toYaml trims the trailing newline (the Helm convention).
+	funcs["toYaml"] = func(v any) (string, error) {
+		out, err := yaml.Marshal(v)
+		if err != nil {
+			return "", fmt.Errorf("toYaml: %w", err)
+		}
+		return strings.TrimSuffix(string(out), "\n"), nil
+	}
+	funcs["fromYaml"] = func(s string) (any, error) {
+		var v any
+		if err := yaml.Unmarshal([]byte(s), &v); err != nil {
+			return nil, fmt.Errorf("fromYaml: %w", err)
+		}
+		return v, nil
 	}
 
 	funcs["basicauth_credentials"] = BasicAuthCredentials

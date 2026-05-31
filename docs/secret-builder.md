@@ -486,19 +486,31 @@ deterministic — no I/O, no randomness, no live clock.
 | ``input`` | the resolved inputs: ``input.constants``, ``.context``, ``.secrets``, ``.configMaps``, ``.serviceAccount``, ``.generated`` |
 | ``fail(message)`` | abort as broken (see *Signalling* below) |
 | ``retry(message, after="")`` | abort as not-ready-yet |
-| ``json`` | ``json.encode(v)``, ``json.decode(s)``, ``json.indent(s)`` (go.starlark.net's json module) |
-| ``base64`` | ``base64.encode(value)`` → string, ``base64.decode(value)`` → bytes (standard encoding) |
-| ``tls`` | the TLS recipe (below) |
-| ``basicauth`` | the basic-auth recipe |
-| ``dockerconfig`` | the docker-config recipe |
-| ``htpasswd`` | the htpasswd recipe |
-| ``kubeconfig`` | the kubeconfig recipe |
-| ``jwt`` | the JWT recipe |
+
+The **recipe modules** (``tls``, ``basicauth``, ``dockerconfig``, ``htpasswd``,
+``kubeconfig`` and ``jwt``) are documented under *Recipes* below. The
+lower-level **primitive modules** are:
+
+| Module | Functions |
+|---|---|
+| ``json`` | ``json.encode(v)`` → str, ``json.decode(s)`` → value, ``json.indent(s)`` → str (go.starlark.net's json module) |
+| ``yaml`` | ``yaml.encode(v)`` → str, ``yaml.decode(s)`` → value (via YAML↔JSON, so decoded maps carry string keys) |
+| ``base64`` | ``base64.encode(value)`` → str, ``base64.decode(value)`` → bytes (standard encoding) |
+| ``hex`` | ``hex.encode(value)`` → str, ``hex.decode(value)`` → bytes |
+| ``hash`` | ``hash.sha256(value)``, ``hash.sha512(value)``, ``hash.sha1(value)`` → hex str; ``hash.hmac_sha256(key, value)`` → hex str |
+| ``regexp`` | ``regexp.match(pattern, str)`` → bool, ``regexp.replace(pattern, str, repl)`` → str, ``regexp.find_all(pattern, str)`` → [str] (RE2 syntax) |
+| ``url`` | ``url.query_escape(value)`` / ``query_unescape(value)`` / ``path_escape(value)`` / ``path_unescape(value)`` |
+
+``encode``/``decode`` and the ``base64``/``hex`` helpers accept a string or
+``bytes``; ``json``/``yaml`` ``decode`` numbers come back as floats. These are for
+**data-inside-data** (e.g. CA bytes inside a kubeconfig, or emitting a YAML config
+blob as one Secret value) — the Secret envelope itself is encoded by the operator.
 
 Plus all Starlark language built-ins (``len``, ``range``, ``enumerate``,
 ``sorted``, ``min``, ``max``, ``sum``, ``any``, ``all``, ``str``, ``int``,
 ``dict``, ``list``, comprehensions, and the string/list/dict methods). There is no
-``print``/I/O.
+``print``/I/O, and no clock module — time comes only from
+``input.context.generatedAt``.
 
 ### gotemplate: dot context and functions
 
@@ -512,6 +524,13 @@ functions (named with underscores, gotemplate's flat-namespace convention):
 ``basicauth_credentials``, ``basicauth_header``, ``tls_bundle``,
 ``dockerconfig_json``, ``htpasswd_bcrypt``, ``htpasswd_sha``, ``htpasswd_apr1``,
 ``kubeconfig_merge``, ``jwt_sign``.
+
+Sprig already covers the primitives the Starlark engine exposes as modules —
+``b64enc``/``b64dec``, ``toJson``/``fromJson``, ``sha256sum``/``sha1sum``,
+``regexMatch``/``regexReplaceAll``, ``urlquery`` — so they are not re-added. The
+one gap Sprig leaves, YAML, is filled with ``toYaml`` (a value → YAML string, the
+Helm convention of trimming the trailing newline) and ``fromYaml`` (a YAML string
+→ value).
 
 > **Determinism caveat for templates.** Sprig includes non-deterministic
 > functions (``now``, ``randAlphaNum``, ``uuidv4``, …). Using them defeats the

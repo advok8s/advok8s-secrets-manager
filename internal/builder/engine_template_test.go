@@ -146,3 +146,19 @@ func TestTemplateOutputCap(t *testing.T) {
 		t.Fatalf("expected output-cap error")
 	}
 }
+
+func TestTemplateYAMLFuncs(t *testing.T) {
+	result, err := renderTemplate(t, map[string]string{
+		"roundtrip": `{{ "foo: bar" | fromYaml | toYaml }}`,
+		"field":     `{{ index (fromYaml "a: 1\nb: two") "b" }}`,
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if got := string(result.Data["roundtrip"]); got != "foo: bar" {
+		t.Errorf("roundtrip = %q, want %q", got, "foo: bar")
+	}
+	if got := string(result.Data["field"]); got != "two" {
+		t.Errorf("field = %q, want %q", got, "two")
+	}
+}
