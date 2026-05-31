@@ -160,7 +160,7 @@ func (r *SecretInjectorReconciler) reconcileNamespace(ctx context.Context, rule 
 	var matchedSecrets []corev1.Secret
 	for k := range secretList.Items {
 		secret := secretList.Items[k]
-		if rule.SourceSecrets.Matches(secret.Name, secret.Labels) {
+		if rule.SourceSecrets.Matches(&secret.ObjectMeta) {
 			matchedSecrets = append(matchedSecrets, secret)
 		}
 	}
@@ -309,7 +309,7 @@ func (r *SecretInjectorReconciler) findInjectorsMatchingSecret(ctx context.Conte
 	}
 
 	return r.injectorsMatching(ctx, func(rule *secretsv1beta1.SecretInjectorRule) bool {
-		return rule.SourceSecrets.Matches(secret.Name, secret.Labels)
+		return rule.SourceSecrets.Matches(&secret.ObjectMeta)
 	})
 }
 

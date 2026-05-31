@@ -91,9 +91,9 @@ secret, and source-namespace selector.
 Behaviourally equivalent: it injects references to matching secrets into matching
 service accounts within matching namespaces — image pull secrets
 (`kubernetes.io/dockerconfigjson`) into `imagePullSecrets`, other types into
-`secrets` — adding references idempotently and never removing them. Source-secret
-and service-account name matching is exact set membership (no globs), as in the
-Python operator.
+`secrets` — adding references idempotently and never removing them. Service-account
+name matching is exact set membership (no globs), as in the Python operator;
+source-secret matching is a superset (see below).
 
 ### Added: `spec.syncPeriod` and populated `status`
 
@@ -104,9 +104,17 @@ matched, injections in sync, failures). `injectionsInSync` counts references tha
 are present, not a reconciled-to-exact total, because injections are never
 removed. The Educates implementation leaves status unmanaged.
 
-### Superset: `targetNamespaces` also supports `ownerSelector`
+### Superset: richer `sourceSecrets` and `targetNamespaces` selectors
 
-The injector reuses the same target-namespace selector as SecretCopier, which
-includes `ownerSelector` (and `uidSelector`). The Educates `SecretInjector` CRD
-offers only name / uid / label selectors for namespaces, so this is a (harmless)
-superset; rules that do not use `ownerSelector` behave identically.
+`targetNamespaces` reuses the same selector as SecretCopier, which includes
+`ownerSelector` (and `uidSelector`); the Educates CRD offers only name / uid /
+label selectors for namespaces.
+
+`sourceSecrets` uses the shared `SecretSelector` (name / label / **owner** /
+**uid**) rather than the Educates name+label-only selector, and its name matching
+supports shell-style globs and `!` exclusions (the `NameSelector` form) instead of
+exact set membership.
+
+Both are **harmless supersets**: a rule that uses only name / label selectors with
+plain (non-glob) names behaves identically to the Educates operator. The added
+`ownerSelector` / `uidSelector` and glob support only take effect when used.

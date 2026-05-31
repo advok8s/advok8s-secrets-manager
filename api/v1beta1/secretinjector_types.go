@@ -28,8 +28,9 @@ import (
 // imagePullSecrets; all other secret types are injected into its secrets.
 type SecretInjectorRule struct {
 	// SourceSecrets selects the secrets whose references are injected. At least
-	// a name or label selector should be given.
-	SourceSecrets selectors.NameLabelSelector `json:"sourceSecrets"`
+	// a name or label selector should be given. It uses the richer SecretSelector
+	// (name/label/owner/uid); name matching supports globs and "!" exclusions.
+	SourceSecrets selectors.SecretSelector `json:"sourceSecrets"`
 
 	// TargetNamespaces selects the namespaces the rule applies to. When omitted,
 	// all namespaces except the Kubernetes-reserved kube-* namespaces match.
