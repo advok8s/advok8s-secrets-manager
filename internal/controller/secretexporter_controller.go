@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -46,12 +47,14 @@ import (
 // so the copy is always created with the Delete reclaim behaviour.
 type SecretExporterReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretexporters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretexporters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretexporters/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile copies the exporter's secret into the namespaces matched by its
 // rules, subject to a matching SecretImporter authorizing each copy.
@@ -78,6 +81,8 @@ func (r *SecretExporterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if !exporter.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
 	}
+
+	prevDegraded := conditionStatus(exporter.Status.Conditions, secretsv1beta1.ConditionDegraded)
 
 	status := secretsv1beta1.SecretExporterStatus{
 		ObservedGeneration: exporter.Generation,
@@ -161,6 +166,8 @@ func (r *SecretExporterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			log.V(1).Info("Conflict updating SecretExporter status; another reconcile won, continuing", "name", req.NamespacedName)
 		}
 	}
+
+	recordDegradedTransition(r.Recorder, &exporter, prevDegraded, status.Conditions)
 
 	if exporter.Spec.SyncPeriod != nil && exporter.Spec.SyncPeriod.Duration > 0 {
 		return ctrl.Result{RequeueAfter: exporter.Spec.SyncPeriod.Duration}, nil

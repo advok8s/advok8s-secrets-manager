@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -42,7 +43,8 @@ import (
 // SecretCopierReconciler reconciles a SecretCopier object
 type SecretCopierReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretcopiers,verbs=get;list;watch;create;update;patch;delete
@@ -51,6 +53,7 @@ type SecretCopierReconciler struct {
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretimporters,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -139,6 +142,8 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// The status records counts only, never the individual target namespaces,
 	// so its size is bounded by the number of rules rather than the size of the
 	// cluster.
+
+	prevDegraded := conditionStatus(secretCopier.Status.Conditions, secretsv1beta1.ConditionDegraded)
 
 	status := secretsv1beta1.SecretCopierStatus{
 		ObservedGeneration: secretCopier.Generation,
@@ -273,6 +278,8 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			log.V(1).Info("Conflict updating SecretCopier status; another reconcile won, continuing", "name", req.NamespacedName)
 		}
 	}
+
+	recordDegradedTransition(r.Recorder, &secretCopier, prevDegraded, status.Conditions)
 
 	// Requeue the request based on the synchronizaion period defined for the
 	// SecretCopier. This is to ensure that we periodically check for case where

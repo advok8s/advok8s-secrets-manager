@@ -112,6 +112,12 @@ type SecretExporterStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status"
+// +kubebuilder:printcolumn:name="Source",type=boolean,JSONPath=".status.sourceExists"
+// +kubebuilder:printcolumn:name="In Sync",type=integer,JSONPath=".status.summary.secretsInSync"
+// +kubebuilder:printcolumn:name="Failures",type=integer,JSONPath=".status.summary.failures"
+// +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].reason",priority=1
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=".metadata.creationTimestamp"
 
 // SecretExporter is the Schema for the secretexporters API.
 type SecretExporter struct {

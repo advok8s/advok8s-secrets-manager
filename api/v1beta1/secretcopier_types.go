@@ -204,6 +204,13 @@ type RuleStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status"
+// +kubebuilder:printcolumn:name="Namespaces",type=integer,JSONPath=".status.summary.targetNamespaces"
+// +kubebuilder:printcolumn:name="In Sync",type=integer,JSONPath=".status.summary.secretsInSync"
+// +kubebuilder:printcolumn:name="Failures",type=integer,JSONPath=".status.summary.failures"
+// +kubebuilder:printcolumn:name="Conflicts",type=integer,JSONPath=".status.summary.conflicts",priority=1
+// +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].reason",priority=1
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=".metadata.creationTimestamp"
 
 // SecretCopier is the Schema for the secretcopiers API
 type SecretCopier struct {

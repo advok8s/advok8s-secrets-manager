@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,13 +45,15 @@ import (
 // secrets. Injections are only added, never removed.
 type SecretInjectorReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretinjectors,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretinjectors/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretinjectors/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile injects secret references into the service accounts matched by the
 // SecretInjector's rules.
@@ -75,6 +78,8 @@ func (r *SecretInjectorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if !injector.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
 	}
+
+	prevDegraded := conditionStatus(injector.Status.Conditions, secretsv1beta1.ConditionDegraded)
 
 	status := secretsv1beta1.SecretInjectorStatus{
 		ObservedGeneration: injector.Generation,
@@ -130,6 +135,8 @@ func (r *SecretInjectorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			log.V(1).Info("Conflict updating SecretInjector status; another reconcile won, continuing", "name", req.NamespacedName)
 		}
 	}
+
+	recordDegradedTransition(r.Recorder, &injector, prevDegraded, status.Conditions)
 
 	if injector.Spec.SyncPeriod != nil && injector.Spec.SyncPeriod.Duration > 0 {
 		return ctrl.Result{RequeueAfter: injector.Spec.SyncPeriod.Duration}, nil

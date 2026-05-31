@@ -80,6 +80,11 @@ type SecretImporterStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status"
+// +kubebuilder:printcolumn:name="Imported",type=boolean,JSONPath=".status.imported"
+// +kubebuilder:printcolumn:name="Bound To",type=string,JSONPath=".status.boundTo"
+// +kubebuilder:printcolumn:name="Secret",type=string,JSONPath=".status.targetSecretName",priority=1
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=".metadata.creationTimestamp"
 
 // SecretImporter is the Schema for the secretimporters API.
 type SecretImporter struct {

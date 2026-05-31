@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,7 +45,8 @@ import (
 // and what is exporting it.
 type SecretImporterReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretimporters,verbs=get;list;watch;create;update;patch;delete
@@ -52,6 +54,7 @@ type SecretImporterReconciler struct {
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretimporters/finalizers,verbs=update
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretexporters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretcopiers,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile computes the observed status of a SecretImporter.
 func (r *SecretImporterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -78,6 +81,8 @@ func (r *SecretImporterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// The importer manages the secret named the same as itself, in its own
 	// namespace.
+
+	prevReady := conditionStatus(importer.Status.Conditions, secretsv1beta1.ConditionReady)
 
 	status := secretsv1beta1.SecretImporterStatus{
 		ObservedGeneration: importer.Generation,
@@ -115,6 +120,8 @@ func (r *SecretImporterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			log.V(1).Info("Conflict updating SecretImporter status; another reconcile won, continuing", "name", req.NamespacedName)
 		}
 	}
+
+	recordImportedTransition(r.Recorder, &importer, prevReady, status.Conditions)
 
 	return ctrl.Result{}, nil
 }

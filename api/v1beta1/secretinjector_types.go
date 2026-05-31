@@ -104,6 +104,13 @@ type SecretInjectorStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status"
+// +kubebuilder:printcolumn:name="Namespaces",type=integer,JSONPath=".status.summary.targetNamespaces"
+// +kubebuilder:printcolumn:name="Svc Accounts",type=integer,JSONPath=".status.summary.serviceAccountsMatched"
+// +kubebuilder:printcolumn:name="In Sync",type=integer,JSONPath=".status.summary.injectionsInSync"
+// +kubebuilder:printcolumn:name="Failures",type=integer,JSONPath=".status.summary.failures"
+// +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].reason",priority=1
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=".metadata.creationTimestamp"
 
 // SecretInjector is the Schema for the secretinjectors API.
 type SecretInjector struct {
