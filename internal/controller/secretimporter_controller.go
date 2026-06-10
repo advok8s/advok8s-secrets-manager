@@ -211,7 +211,7 @@ func (r *SecretImporterReconciler) hasMatchingExportOrCopy(ctx context.Context, 
 // secret, from the tracking annotations on the imported copy.
 func boundToDescription(secret *corev1.Secret) string {
 	owner := secret.Annotations[copyengine.AnnotationManagedBy]
-	source := secret.Annotations[copyengine.AnnotationSourceSecret]
+	source := secret.Annotations[copyengine.AnnotationSourceResource]
 
 	if source != "" {
 		return owner + " (" + source + ")"

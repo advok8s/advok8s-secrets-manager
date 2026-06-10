@@ -41,7 +41,7 @@ var _ = Describe("SecretExporter exporting a secret", func() {
 			target := eventuallyGetSecret("exp-tgt-1", "regcred-1")
 
 			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedBy, "secretexporter/regcred-1"))
-			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationSourceSecret, "exp-src-1/regcred-1"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationSourceResource, "exp-src-1/regcred-1"))
 
 			Expect(target.OwnerReferences).To(HaveLen(1))
 			owner := target.OwnerReferences[0]

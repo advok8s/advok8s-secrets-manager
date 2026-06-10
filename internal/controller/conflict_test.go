@@ -88,7 +88,7 @@ var _ = Describe("Conflicting rules targeting the same secret", func() {
 				nameSelectorRule("conf2-src-a", "dup", "dup", "conf2-tgt"))
 
 			target := eventuallyGetSecret("conf2-tgt", "dup")
-			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationSourceSecret, "conf2-src-a/dup"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationSourceResource, "conf2-src-a/dup"))
 
 			createOpaqueSecret("conf2-src-b", "dup", map[string]string{"owner": "b"}, nil)
 			createSecretCopier("conf2-copier-b",
