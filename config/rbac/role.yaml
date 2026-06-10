@@ -51,6 +51,7 @@ rules:
 - apiGroups:
   - secrets.advok8s.io
   resources:
+  - configmapbuilders
   - configmapcopiers
   - secretbuilders
   - secretcopiers
@@ -68,6 +69,7 @@ rules:
 - apiGroups:
   - secrets.advok8s.io
   resources:
+  - configmapbuilders/finalizers
   - configmapcopiers/finalizers
   - secretbuilders/finalizers
   - secretcopiers/finalizers
@@ -79,6 +81,7 @@ rules:
 - apiGroups:
   - secrets.advok8s.io
   resources:
+  - configmapbuilders/status
   - configmapcopiers/status
   - secretbuilders/status
   - secretcopiers/status

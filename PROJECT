@@ -26,4 +26,13 @@ resources:
   kind: ConfigMapCopier
   path: github.com/advok8s/advok8s-secrets-manager/api/v1beta1
   version: v1beta1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: advok8s.io
+  group: secrets
+  kind: ConfigMapBuilder
+  path: github.com/advok8s/advok8s-secrets-manager/api/v1beta1
+  version: v1beta1
 version: "3"

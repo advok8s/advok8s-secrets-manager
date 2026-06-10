@@ -169,6 +169,30 @@ func InputsForSecretBuilder(in *secretsv1beta1.SecretBuilderInputs) Inputs {
 	}
 }
 
+// InputsForConfigMapBuilder normalizes a ConfigMapBuilder's declared inputs.
+// The curated generated union converts to the full GeneratedValue form so
+// GenerateAll and the persistence/replay machinery are reused unchanged; there
+// is never a ServiceAccount input.
+func InputsForConfigMapBuilder(in *secretsv1beta1.ConfigMapBuilderInputs) Inputs {
+	generated := make([]secretsv1beta1.GeneratedValue, 0, len(in.Generated))
+	for i := range in.Generated {
+		g := in.Generated[i]
+		generated = append(generated, secretsv1beta1.GeneratedValue{
+			Name:      g.Name,
+			UUID:      g.UUID,
+			RandomInt: g.RandomInt,
+		})
+	}
+
+	return Inputs{
+		Constants:  in.Constants,
+		Secrets:    in.Secrets,
+		ConfigMaps: in.ConfigMaps,
+		Generated:  generated,
+		Libraries:  in.Libraries,
+	}
+}
+
 // ResolveRequest is one builder's resolution request: the builder object (its
 // ObjectMeta is the generator's input.context), its normalized inputs, and the
 // persisted "now" anchoring time-bound material.

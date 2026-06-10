@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -44,55 +43,35 @@ import (
 	sb "github.com/advok8s/advok8s-secrets-manager/internal/builder"
 )
 
-// awaitingRequeue is how often a builder waiting on absent inputs retries beyond
-// the input watch (a backstop for inputs the watch does not cover).
-const awaitingRequeue = 15 * time.Second
-
-// genAction is the decision of what to do this reconcile.
-type genAction int
-
-const (
-	actionStable        genAction = iota // output present and current; do nothing
-	actionGenerateFresh                  // first generation (or generate-once recovery): new material, now
-	actionRefresh                        // re-run with persisted material + frozen generatedAt
-	actionRotateFresh                    // re-stamp generatedAt now, re-roll entropy
-	actionRotateKeep                     // re-stamp generatedAt now, reuse persisted entropy
-)
-
-// SecretBuilderReconciler reconciles a SecretBuilder by resolving its inputs,
-// generating any random material, running its script/template, and writing the
-// resulting Secret. It implements the regeneration model: generate-once by
-// default, with optional onInputChange refresh, rotateEvery rotation, and a manual
-// regenerate annotation. Generated material is persisted in an owned companion
-// Secret so a refresh replays it identically.
-type SecretBuilderReconciler struct {
+// ConfigMapBuilderReconciler reconciles a ConfigMapBuilder by resolving its
+// inputs, generating any (non-secret) random material, running its
+// script/template, and writing the resulting ConfigMap. It shares the
+// SecretBuilder regeneration model: generate-once by default, with optional
+// onInputChange refresh, rotateEvery rotation, and a manual regenerate
+// annotation. Generated material is persisted in an owned companion Secret
+// (always a Secret, regardless of the output kind - generated material is
+// entropy) so a refresh replays it identically.
+type ConfigMapBuilderReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder events.EventRecorder
-
-	TokenMinter sb.TokenMinter
-	// ClusterServer is the API server URL exposed as serviceAccount.cluster.server;
-	// set from builder.ClusterAPIServerURL() (the in-cluster address).
-	ClusterServer string
 
 	// Rand is the entropy source for generated material (defaults to crypto/rand).
 	Rand io.Reader
 }
 
-// +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretbuilders,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretbuilders/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=secrets.advok8s.io,resources=secretbuilders/finalizers,verbs=update
+// +kubebuilder:rbac:groups=secrets.advok8s.io,resources=configmapbuilders,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=secrets.advok8s.io,resources=configmapbuilders/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=secrets.advok8s.io,resources=configmapbuilders/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=serviceaccounts/token,verbs=create
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
-// Reconcile produces (and regenerates) the Secret for a SecretBuilder.
-func (r *SecretBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+// Reconcile produces (and regenerates) the ConfigMap for a ConfigMapBuilder.
+func (r *ConfigMapBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	var builder secretsv1beta1.SecretBuilder
+	var builder secretsv1beta1.ConfigMapBuilder
 	if err := r.Get(ctx, req.NamespacedName, &builder); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -101,12 +80,12 @@ func (r *SecretBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	prev := capturePrev(builder.Status.Conditions)
-	status := copyStatus(&builder)
+	status := copyConfigMapBuilderStatus(&builder)
 
 	regen := builder.Spec.Regeneration
 	regenEnabled := regen.OnInputChange || regen.RotateEvery != nil
 
-	var existing corev1.Secret
+	var existing corev1.ConfigMap
 	getErr := r.Get(ctx, client.ObjectKey{Namespace: builder.Namespace, Name: builder.Name}, &existing)
 	if getErr != nil && client.IgnoreNotFound(getErr) != nil {
 		return ctrl.Result{}, getErr
@@ -116,23 +95,23 @@ func (r *SecretBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// Resolve inputs (provisional generatedAt = now; only Context.GeneratedAt
 	// depends on it and is fixed once the action is known).
 	now := metav1.Now()
-	resolver := &sb.Resolver{Client: r.Client, TokenMinter: r.TokenMinter, ClusterServer: r.ClusterServer}
+	resolver := &sb.Resolver{Client: r.Client}
 	resolved, pending, err := resolver.Resolve(ctx, sb.ResolveRequest{
 		Object:      &builder,
-		Inputs:      sb.InputsForSecretBuilder(&builder.Spec.Inputs),
+		Inputs:      sb.InputsForConfigMapBuilder(&builder.Spec.Inputs),
 		GeneratedAt: now.Time,
 	})
 	if err != nil {
-		setConditions(&status, builder.Generation, metav1.ConditionFalse, "InvalidInput", err.Error(),
+		setConfigMapBuilderConditions(&status, builder.Generation, metav1.ConditionFalse, "InvalidInput", err.Error(),
 			metav1.ConditionTrue, "InvalidInput", err.Error())
 		return r.finish(ctx, &builder, status, prev, ctrl.Result{})
 	}
 	if len(pending) > 0 {
 		reason := pendingReason(pending)
 		msg := pending[0].Message
-		setConditions(&status, builder.Generation, metav1.ConditionFalse, reason, msg,
+		setConfigMapBuilderConditions(&status, builder.Generation, metav1.ConditionFalse, reason, msg,
 			metav1.ConditionFalse, reason, msg)
-		log.V(1).Info("SecretBuilder awaiting inputs", "name", req.NamespacedName, "reason", reason)
+		log.V(1).Info("ConfigMapBuilder awaiting inputs", "name", req.NamespacedName, "reason", reason)
 		return r.finish(ctx, &builder, status, prev, ctrl.Result{RequeueAfter: awaitingRequeue})
 	}
 	fingerprint := resolved.Fingerprint()
@@ -158,7 +137,7 @@ func (r *SecretBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}, regen, outputExists, companionExists, manualChanged, fingerprint, now)
 
 	if action == actionStable {
-		setGenerated(&status, &builder)
+		setConfigMapGenerated(&status, &builder)
 		result, nextRotation := rotationRequeue(status.LastGeneratedTime, regen)
 		status.NextRotationTime = nextRotation
 		return r.finish(ctx, &builder, status, prev, result)
@@ -168,68 +147,11 @@ func (r *SecretBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		action, companionGen, companionAt, now, fingerprint, manualToken)
 }
 
-// regenState is the kind-neutral slice of a builder's status that the action
-// decision depends on, so SecretBuilder and ConfigMapBuilder share one
-// decision function without sharing status types.
-type regenState struct {
-	generated         bool
-	lastGeneratedTime *metav1.Time
-	inputFingerprint  string
-}
-
-// decideAction picks what this reconcile should do, given the current state and
-// what exists (output object, companion material) plus any manual trigger.
-func decideAction(state regenState, regen secretsv1beta1.Regeneration,
-	outputExists, companionExists, manualChanged bool, fingerprint string, now metav1.Time) genAction {
-	rotate := func() genAction {
-		if regen.RotateGenerated || !companionExists {
-			return actionRotateFresh
-		}
-		return actionRotateKeep
-	}
-
-	switch {
-	case !state.generated:
-		return actionGenerateFresh
-	case !outputExists:
-		// The output was deleted. Restore from persisted material when we have it
-		// (no surprise rotation); otherwise (generate-once) regenerate fresh - the
-		// only copy of the entropy went away with the output.
-		if companionExists {
-			return actionRefresh
-		}
-		return actionGenerateFresh
-	case manualChanged:
-		return rotate()
-	case regen.RotateEvery != nil && state.lastGeneratedTime != nil &&
-		!now.Time.Before(state.lastGeneratedTime.Add(regen.RotateEvery.Duration)):
-		return rotate()
-	case regen.OnInputChange && companionExists && fingerprint != state.inputFingerprint:
-		return actionRefresh
-	default:
-		return actionStable
-	}
-}
-
-// rotationRequeue returns the next rotateEvery rotation time (for status) and
-// the requeue delay until then, or zero values when rotation is not configured.
-func rotationRequeue(lastGeneratedTime *metav1.Time, regen secretsv1beta1.Regeneration) (ctrl.Result, *metav1.Time) {
-	if regen.RotateEvery == nil || lastGeneratedTime == nil {
-		return ctrl.Result{}, nil
-	}
-	next := lastGeneratedTime.Add(regen.RotateEvery.Duration)
-	nextTime := &metav1.Time{Time: next}
-	if d := time.Until(next); d > 0 {
-		return ctrl.Result{RequeueAfter: d}, nextTime
-	}
-	return ctrl.Result{RequeueAfter: time.Second}, nextTime
-}
-
-// generateWriteAndFinish carries out a non-stable action: it produces (or replays)
-// the generated material, runs the engine, writes the output Secret and companion
-// state, then updates status.
-func (r *SecretBuilderReconciler) generateWriteAndFinish(ctx context.Context,
-	builder *secretsv1beta1.SecretBuilder, status *secretsv1beta1.SecretBuilderStatus, prev prevConditions,
+// generateWriteAndFinish carries out a non-stable action: it produces (or
+// replays) the generated material, runs the engine, writes the output
+// ConfigMap and companion state, then updates status.
+func (r *ConfigMapBuilderReconciler) generateWriteAndFinish(ctx context.Context,
+	builder *secretsv1beta1.ConfigMapBuilder, status *secretsv1beta1.ConfigMapBuilderStatus, prev prevConditions,
 	resolved *sb.ResolvedInputs, action genAction, companionGen map[string]map[string]any,
 	companionAt time.Time, now metav1.Time, fingerprint, manualToken string) (ctrl.Result, error) {
 	regen := builder.Spec.Regeneration
@@ -242,7 +164,7 @@ func (r *SecretBuilderReconciler) generateWriteAndFinish(ctx context.Context,
 	switch action {
 	case actionGenerateFresh, actionRotateFresh:
 		finalAt = now
-		generated, err = sb.GenerateAll(builder.Spec.Inputs.Generated, r.randReader(), finalAt.Time, resolved)
+		generated, err = sb.GenerateAll(sb.InputsForConfigMapBuilder(&builder.Spec.Inputs).Generated, r.randReader(), finalAt.Time, resolved)
 		if err != nil {
 			return r.fail(ctx, builder, status, prev, err)
 		}
@@ -261,7 +183,7 @@ func (r *SecretBuilderReconciler) generateWriteAndFinish(ctx context.Context,
 
 	engine, err := r.engineFor(builder)
 	if err != nil {
-		setConditions(status, builder.Generation, metav1.ConditionFalse, "InvalidInput", err.Error(),
+		setConfigMapBuilderConditions(status, builder.Generation, metav1.ConditionFalse, "InvalidInput", err.Error(),
 			metav1.ConditionTrue, "InvalidInput", err.Error())
 		return r.finish(ctx, builder, *status, prev, ctrl.Result{})
 	}
@@ -271,26 +193,29 @@ func (r *SecretBuilderReconciler) generateWriteAndFinish(ctx context.Context,
 		return r.handleRenderError(ctx, builder, status, prev, err)
 	}
 
-	// Write the output Secret.
-	revision := sb.RevisionOf(result.Data)
-	secretType := result.Type
-	if secretType == "" {
-		secretType = string(builder.Spec.Output.Type)
+	// The engine validated data values as UTF-8; convert for the ConfigMap.
+	data := make(map[string]string, len(result.Data))
+	for key, value := range result.Data {
+		data[key] = string(value)
 	}
-	if err := sb.WriteSecret(ctx, r.Client, r.Scheme, builder, sb.WriteRequest{
+
+	// Write the output ConfigMap.
+	revision := sb.ConfigMapRevisionOf(data, result.BinaryData)
+	if err := sb.WriteConfigMap(ctx, r.Client, r.Scheme, builder, sb.ConfigMapWriteRequest{
 		Name:        builder.Name,
 		Namespace:   builder.Namespace,
-		Type:        secretType,
 		Labels:      mergeLabels(builder.Spec.Output.Labels, result.Labels),
 		Annotations: builder.Spec.Output.Annotations,
-		Data:        result.Data,
+		Data:        data,
+		BinaryData:  result.BinaryData,
 		Revision:    revision,
 	}); err != nil {
 		return r.fail(ctx, builder, status, prev, err)
 	}
 
-	// Persist the companion state so a future refresh/keep-entropy rotation can
-	// replay this exact material and generatedAt.
+	// Persist the companion state (a Secret - generated material is entropy)
+	// so a future refresh/keep-entropy rotation can replay this exact material
+	// and generatedAt.
 	if regenEnabled {
 		if err := r.writeCompanion(ctx, builder, generated, finalAt.Time); err != nil {
 			return r.fail(ctx, builder, status, prev, fmt.Errorf("writing companion state: %w", err))
@@ -304,7 +229,7 @@ func (r *SecretBuilderReconciler) generateWriteAndFinish(ctx context.Context,
 	if manualToken != "" {
 		status.ObservedRegenerateToken = manualToken
 	}
-	setGenerated(status, builder)
+	setConfigMapGenerated(status, builder)
 
 	requeue, nextRotation := rotationRequeue(status.LastGeneratedTime, regen)
 	status.NextRotationTime = nextRotation
@@ -313,12 +238,12 @@ func (r *SecretBuilderReconciler) generateWriteAndFinish(ctx context.Context,
 
 // handleRenderError maps an engine render error to the right terminal condition:
 // a RetryError holds in AwaitingInput and requeues, anything else degrades.
-func (r *SecretBuilderReconciler) handleRenderError(ctx context.Context, builder *secretsv1beta1.SecretBuilder,
-	status *secretsv1beta1.SecretBuilderStatus, prev prevConditions, err error) (ctrl.Result, error) {
+func (r *ConfigMapBuilderReconciler) handleRenderError(ctx context.Context, builder *secretsv1beta1.ConfigMapBuilder,
+	status *secretsv1beta1.ConfigMapBuilderStatus, prev prevConditions, err error) (ctrl.Result, error) {
 	var retryErr *sb.RetryError
 	if errors.As(err, &retryErr) {
 		msg := retryErr.Message
-		setConditions(status, builder.Generation, metav1.ConditionFalse, "AwaitingInput", msg,
+		setConfigMapBuilderConditions(status, builder.Generation, metav1.ConditionFalse, "AwaitingInput", msg,
 			metav1.ConditionFalse, "AwaitingInput", msg)
 		after := retryErr.After
 		if after <= 0 {
@@ -330,9 +255,9 @@ func (r *SecretBuilderReconciler) handleRenderError(ctx context.Context, builder
 }
 
 // loadCompanion reads the persisted generated material and frozen generatedAt.
-func (r *SecretBuilderReconciler) loadCompanion(ctx context.Context, builder *secretsv1beta1.SecretBuilder) (map[string]map[string]any, time.Time, bool, error) {
+func (r *ConfigMapBuilderReconciler) loadCompanion(ctx context.Context, builder *secretsv1beta1.ConfigMapBuilder) (map[string]map[string]any, time.Time, bool, error) {
 	var companion corev1.Secret
-	err := r.Get(ctx, client.ObjectKey{Namespace: builder.Namespace, Name: sb.CompanionSecretName(builder.Name)}, &companion)
+	err := r.Get(ctx, client.ObjectKey{Namespace: builder.Namespace, Name: sb.CompanionConfigMapBuilderStateName(builder.Name)}, &companion)
 	if apierrors.IsNotFound(err) {
 		return nil, time.Time{}, false, nil
 	}
@@ -350,13 +275,13 @@ func (r *SecretBuilderReconciler) loadCompanion(ctx context.Context, builder *se
 	return generated, generatedAt, true, nil
 }
 
-func (r *SecretBuilderReconciler) writeCompanion(ctx context.Context, builder *secretsv1beta1.SecretBuilder, generated map[string]map[string]any, generatedAt time.Time) error {
+func (r *ConfigMapBuilderReconciler) writeCompanion(ctx context.Context, builder *secretsv1beta1.ConfigMapBuilder, generated map[string]map[string]any, generatedAt time.Time) error {
 	data, err := sb.SerializeGenerated(generated)
 	if err != nil {
 		return err
 	}
 	return sb.WriteSecret(ctx, r.Client, r.Scheme, builder, sb.WriteRequest{
-		Name:      sb.CompanionSecretName(builder.Name),
+		Name:      sb.CompanionConfigMapBuilderStateName(builder.Name),
 		Namespace: builder.Namespace,
 		Data: map[string][]byte{
 			"generated":   data,
@@ -365,14 +290,14 @@ func (r *SecretBuilderReconciler) writeCompanion(ctx context.Context, builder *s
 	})
 }
 
-func (r *SecretBuilderReconciler) fail(ctx context.Context, builder *secretsv1beta1.SecretBuilder, status *secretsv1beta1.SecretBuilderStatus, prev prevConditions, err error) (ctrl.Result, error) {
+func (r *ConfigMapBuilderReconciler) fail(ctx context.Context, builder *secretsv1beta1.ConfigMapBuilder, status *secretsv1beta1.ConfigMapBuilderStatus, prev prevConditions, err error) (ctrl.Result, error) {
 	const reason = "GeneratorError"
-	setConditions(status, builder.Generation, metav1.ConditionFalse, reason, err.Error(),
+	setConfigMapBuilderConditions(status, builder.Generation, metav1.ConditionFalse, reason, err.Error(),
 		metav1.ConditionTrue, reason, err.Error())
 	return r.finish(ctx, builder, *status, prev, ctrl.Result{})
 }
 
-func (r *SecretBuilderReconciler) finish(ctx context.Context, builder *secretsv1beta1.SecretBuilder, status secretsv1beta1.SecretBuilderStatus, prev prevConditions, result ctrl.Result) (ctrl.Result, error) {
+func (r *ConfigMapBuilderReconciler) finish(ctx context.Context, builder *secretsv1beta1.ConfigMapBuilder, status secretsv1beta1.ConfigMapBuilderStatus, prev prevConditions, result ctrl.Result) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	r.emitEvents(builder, prev, status.Conditions)
@@ -381,16 +306,16 @@ func (r *SecretBuilderReconciler) finish(ctx context.Context, builder *secretsv1
 		builder.Status = status
 		if err := r.Status().Update(ctx, builder); err != nil {
 			if !apierrors.IsConflict(err) {
-				log.Error(err, "Unable to update SecretBuilder status", "name", builder.Name)
+				log.Error(err, "Unable to update ConfigMapBuilder status", "name", builder.Name)
 				return ctrl.Result{}, err
 			}
-			log.V(1).Info("Conflict updating SecretBuilder status; another reconcile won, continuing", "name", builder.Name)
+			log.V(1).Info("Conflict updating ConfigMapBuilder status; another reconcile won, continuing", "name", builder.Name)
 		}
 	}
 	return result, nil
 }
 
-func (r *SecretBuilderReconciler) emitEvents(builder *secretsv1beta1.SecretBuilder, prev prevConditions, conditions []metav1.Condition) {
+func (r *ConfigMapBuilderReconciler) emitEvents(builder *secretsv1beta1.ConfigMapBuilder, prev prevConditions, conditions []metav1.Condition) {
 	if r.Recorder == nil {
 		return
 	}
@@ -418,44 +343,44 @@ func (r *SecretBuilderReconciler) emitEvents(builder *secretsv1beta1.SecretBuild
 	}
 }
 
-func (r *SecretBuilderReconciler) engineFor(builder *secretsv1beta1.SecretBuilder) (sb.Engine, error) {
+func (r *ConfigMapBuilderReconciler) engineFor(builder *secretsv1beta1.ConfigMapBuilder) (sb.Engine, error) {
 	g := builder.Spec.Generator
 	switch {
 	case g.Script != nil:
-		return sb.NewStarlarkEngine(*g.Script), nil
+		return &sb.StarlarkEngine{Script: *g.Script, Kind: sb.OutputConfigMap}, nil
 	case g.Template != nil:
-		return &sb.TemplateEngine{Data: g.Template.Data, Type: g.Template.Type, Labels: g.Template.Labels}, nil
+		return &sb.TemplateEngine{Data: g.Template.Data, Labels: g.Template.Labels, Kind: sb.OutputConfigMap}, nil
 	default:
 		return nil, fmt.Errorf("generator sets neither script nor template")
 	}
 }
 
-func (r *SecretBuilderReconciler) randReader() io.Reader {
+func (r *ConfigMapBuilderReconciler) randReader() io.Reader {
 	if r.Rand != nil {
 		return r.Rand
 	}
 	return rand.Reader
 }
 
-// SetupWithManager sets up the controller with the Manager. It reconciles on spec
-// changes and on the regenerate annotation, and watches Secrets so a changed input
-// (including an upstream builder's output) refreshes dependent builders. There is
-// deliberately no watch on the builder's own output (see the design's drift model).
-func (r *SecretBuilderReconciler) SetupWithManager(mgr ctrl.Manager) error {
+// SetupWithManager sets up the controller with the Manager. It reconciles on
+// spec changes and on the regenerate annotation, and watches Secrets and
+// ConfigMaps so a changed input (including an upstream builder's output)
+// refreshes dependent builders. There is deliberately no watch on the builder's
+// own output (the generate-and-own drift model).
+func (r *ConfigMapBuilderReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&secretsv1beta1.SecretBuilder{}, ctrlbuilder.WithPredicates(
+		For(&secretsv1beta1.ConfigMapBuilder{}, ctrlbuilder.WithPredicates(
 			predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{}))).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.findBuildersForSecret), ctrlbuilder.OnlyMetadata).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.findBuildersForConfigMap), ctrlbuilder.OnlyMetadata).
-		Named("secretbuilder").
+		Named("configmapbuilder").
 		Complete(r)
 }
 
-// findBuildersForSecret enqueues onInputChange builders whose secret inputs match
-// the changed Secret, carrying upstream-revision propagation through the chain.
-// The watch delivers metadata only, so only ObjectMeta accessors may be used.
-func (r *SecretBuilderReconciler) findBuildersForSecret(ctx context.Context, object client.Object) []reconcile.Request {
-	var builders secretsv1beta1.SecretBuilderList
+// findBuildersForSecret enqueues onInputChange builders whose secret inputs
+// match the changed Secret. The watch delivers metadata only.
+func (r *ConfigMapBuilderReconciler) findBuildersForSecret(ctx context.Context, object client.Object) []reconcile.Request {
+	var builders secretsv1beta1.ConfigMapBuilderList
 	if err := r.List(ctx, &builders); err != nil {
 		return nil
 	}
@@ -477,11 +402,10 @@ func (r *SecretBuilderReconciler) findBuildersForSecret(ctx context.Context, obj
 }
 
 // findBuildersForConfigMap enqueues onInputChange builders whose configMap
-// inputs match the changed ConfigMap (whether referenced as data or as the
-// source of a Starlark library), so a ConfigMap input change refreshes
-// dependent builders just like a Secret input change does.
-func (r *SecretBuilderReconciler) findBuildersForConfigMap(ctx context.Context, object client.Object) []reconcile.Request {
-	var builders secretsv1beta1.SecretBuilderList
+// inputs match the changed ConfigMap, carrying upstream-revision propagation
+// through ConfigMapBuilder chains.
+func (r *ConfigMapBuilderReconciler) findBuildersForConfigMap(ctx context.Context, object client.Object) []reconcile.Request {
+	var builders secretsv1beta1.ConfigMapBuilderList
 	if err := r.List(ctx, &builders); err != nil {
 		return nil
 	}
@@ -502,51 +426,13 @@ func (r *SecretBuilderReconciler) findBuildersForConfigMap(ctx context.Context, 
 	return requests
 }
 
-func matchesSecretInput(input *secretsv1beta1.SecretInput, secret metav1.Object) bool {
-	if input.SecretRef != nil {
-		return input.SecretRef.Name == secret.GetName()
-	}
-	if input.Selector != nil {
-		return input.Selector.Matches(secret)
-	}
-	return false
-}
-
-func matchesConfigMapInput(input *secretsv1beta1.ConfigMapInput, configMap metav1.Object) bool {
-	if input.ConfigMapRef != nil {
-		return input.ConfigMapRef.Name == configMap.GetName()
-	}
-	if input.Selector != nil {
-		return input.Selector.Matches(configMap)
-	}
-	return false
-}
-
 // ---- helpers ------------------------------------------------------------
 
-type prevConditions struct {
-	readyStatus    metav1.ConditionStatus
-	readyReason    string
-	degradedStatus metav1.ConditionStatus
-}
-
-func capturePrev(conditions []metav1.Condition) prevConditions {
-	p := prevConditions{}
-	if ready := meta.FindStatusCondition(conditions, secretsv1beta1.ConditionReady); ready != nil {
-		p.readyStatus = ready.Status
-		p.readyReason = ready.Reason
-	}
-	if degraded := meta.FindStatusCondition(conditions, secretsv1beta1.ConditionDegraded); degraded != nil {
-		p.degradedStatus = degraded.Status
-	}
-	return p
-}
-
-func copyStatus(builder *secretsv1beta1.SecretBuilder) secretsv1beta1.SecretBuilderStatus {
-	return secretsv1beta1.SecretBuilderStatus{
+func copyConfigMapBuilderStatus(builder *secretsv1beta1.ConfigMapBuilder) secretsv1beta1.ConfigMapBuilderStatus {
+	return secretsv1beta1.ConfigMapBuilderStatus{
 		ObservedGeneration:      builder.Generation,
 		Conditions:              builder.Status.Conditions,
-		SecretName:              builder.Name,
+		ConfigMapName:           builder.Name,
 		Generated:               builder.Status.Generated,
 		LastGeneratedTime:       builder.Status.LastGeneratedTime,
 		NextRotationTime:        builder.Status.NextRotationTime,
@@ -556,12 +442,12 @@ func copyStatus(builder *secretsv1beta1.SecretBuilder) secretsv1beta1.SecretBuil
 	}
 }
 
-func setGenerated(status *secretsv1beta1.SecretBuilderStatus, builder *secretsv1beta1.SecretBuilder) {
-	setConditions(status, builder.Generation, metav1.ConditionTrue, "Generated",
-		fmt.Sprintf("Secret %q generated", builder.Name), metav1.ConditionFalse, "Generated", "Secret generated")
+func setConfigMapGenerated(status *secretsv1beta1.ConfigMapBuilderStatus, builder *secretsv1beta1.ConfigMapBuilder) {
+	setConfigMapBuilderConditions(status, builder.Generation, metav1.ConditionTrue, "Generated",
+		fmt.Sprintf("ConfigMap %q generated", builder.Name), metav1.ConditionFalse, "Generated", "ConfigMap generated")
 }
 
-func setConditions(status *secretsv1beta1.SecretBuilderStatus, generation int64,
+func setConfigMapBuilderConditions(status *secretsv1beta1.ConfigMapBuilderStatus, generation int64,
 	ready metav1.ConditionStatus, readyReason, readyMsg string,
 	degraded metav1.ConditionStatus, degradedReason, degradedMsg string) {
 	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
@@ -570,35 +456,4 @@ func setConditions(status *secretsv1beta1.SecretBuilderStatus, generation int64,
 	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
 		Type: secretsv1beta1.ConditionDegraded, Status: degraded, ObservedGeneration: generation, Reason: degradedReason, Message: truncateMessage(degradedMsg),
 	})
-}
-
-func pendingReason(pending []sb.Pending) string {
-	for _, p := range pending {
-		if p.Reason == sb.ReasonMissingServiceAcc {
-			return "MissingServiceAccount"
-		}
-	}
-	return "AwaitingInput"
-}
-
-func isWaitingReason(reason string) bool {
-	return reason == "AwaitingInput" || reason == "MissingServiceAccount"
-}
-
-func mergeLabels(base, extra map[string]string) map[string]string {
-	if len(base) == 0 && len(extra) == 0 {
-		return nil
-	}
-	out := map[string]string{}
-	maps.Copy(out, base)
-	maps.Copy(out, extra)
-	return out
-}
-
-func truncateMessage(msg string) string {
-	const max = 1024
-	if len(msg) > max {
-		return msg[:max] + "…"
-	}
-	return msg
 }
