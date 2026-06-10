@@ -1,0 +1,50 @@
+# ConfigMapBuilder - gotemplate engine
+#
+# Generates a ConfigMap from constants and an existing ConfigMap input using
+# the gotemplate engine (template:) with Sprig functions. The template engine
+# renders UTF-8 text only - binary output (binaryData) requires the script
+# generator (see configmapbuilder-binarydata.yaml).
+#
+#   Apply:    kubectl apply -f examples/configmapbuilder-template.yaml
+#   Verify:   kubectl get configmap app-config -n demo-cmbuilder-template -o yaml
+#   Clean up: kubectl delete -f examples/configmapbuilder-template.yaml
+#
+# Requires the CRDs installed and the operator running.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-cmbuilder-template
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-info
+  namespace: demo-cmbuilder-template
+data:
+  region: eu-west-1
+---
+apiVersion: secrets.advok8s.io/v1beta1
+kind: ConfigMapBuilder
+metadata:
+  name: app-config
+  namespace: demo-cmbuilder-template
+spec:
+  inputs:
+    constants:
+      appName: demo-dashboard
+      replicas: 3
+    configMaps:
+    - name: cluster
+      configMapRef:
+        name: cluster-info
+  generator:
+    template:
+      data:
+        app.properties: |
+          name={{ .constants.appName }}
+          replicas={{ .constants.replicas }}
+          region={{ .configMaps.cluster.data.region }}
+        banner: '{{ .constants.appName | upper }} ({{ .configMaps.cluster.data.region }})'
+      labels:
+        app: '{{ .constants.appName }}'

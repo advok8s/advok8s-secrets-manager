@@ -463,6 +463,117 @@ spec:
 					g.Expect(err).To(HaveOccurred(), "copy should have been garbage-collected with the importer")
 				}).Should(Succeed())
 			})
+
+			It("copies a ConfigMap (with binaryData), repairs a deleted copy, and garbage-collects on copier deletion", func() {
+				DeferCleanup(func() {
+					_, _ = utils.Run(exec.Command("kubectl", "delete", "configmapcopier", "e2e-cm-copier", "--ignore-not-found"))
+					_, _ = utils.Run(exec.Command("kubectl", "delete", "ns", "e2e-cmcopy-src", "e2e-cmcopy-tgt", "--ignore-not-found"))
+				})
+
+				By("applying a source ConfigMap and a ConfigMapCopier with reclaimPolicy Delete")
+				applyYAML(`
+apiVersion: v1
+kind: Namespace
+metadata: {name: e2e-cmcopy-src}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: e2e-cmcopy-tgt}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: e2e-settings, namespace: e2e-cmcopy-src}
+data: {environment: production}
+binaryData: {marker: /wAB}
+---
+apiVersion: secrets.advok8s.io/v1beta1
+kind: ConfigMapCopier
+metadata: {name: e2e-cm-copier}
+spec:
+  rules:
+  - sourceConfigMap: {name: e2e-settings, namespace: e2e-cmcopy-src}
+    targetNamespaces:
+      nameSelector: {matchNames: ["e2e-cmcopy-tgt"]}
+    reclaimPolicy: Delete
+`)
+
+				By("waiting for the copy to appear with both data and binaryData")
+				Eventually(func(g Gomega) {
+					out, err := kubectlGet("configmap", "e2e-settings", "-n", "e2e-cmcopy-tgt", "-o", "jsonpath={.data.environment}/{.binaryData.marker}")
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(out).To(Equal("production//wAB"))
+				}).Should(Succeed())
+
+				By("deleting the copy and expecting event-driven repair")
+				_, err := utils.Run(exec.Command("kubectl", "delete", "configmap", "e2e-settings", "-n", "e2e-cmcopy-tgt"))
+				Expect(err).NotTo(HaveOccurred())
+				Eventually(func(g Gomega) {
+					out, err := kubectlGet("configmap", "e2e-settings", "-n", "e2e-cmcopy-tgt", "-o", "jsonpath={.data.environment}")
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(out).To(Equal("production"))
+				}).Should(Succeed())
+
+				By("deleting the ConfigMapCopier and expecting the garbage collector to remove the copy")
+				_, err = utils.Run(exec.Command("kubectl", "delete", "configmapcopier", "e2e-cm-copier"))
+				Expect(err).NotTo(HaveOccurred())
+				Eventually(func(g Gomega) {
+					_, err := kubectlGet("configmap", "e2e-settings", "-n", "e2e-cmcopy-tgt", "-o", "name")
+					g.Expect(err).To(HaveOccurred(), "copy should have been garbage-collected")
+				}).Should(Succeed())
+			})
+
+			It("derives a ConfigMap from a Secret with a ConfigMapBuilder and tracks input changes", func() {
+				DeferCleanup(func() {
+					_, _ = utils.Run(exec.Command("kubectl", "delete", "ns", "e2e-cmbuild", "--ignore-not-found"))
+				})
+
+				By("applying a credentials Secret and a ConfigMapBuilder deriving the username")
+				applyYAML(`
+apiVersion: v1
+kind: Namespace
+metadata: {name: e2e-cmbuild}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: e2e-db-creds, namespace: e2e-cmbuild}
+type: Opaque
+stringData: {username: app-reader, password: never-published}
+---
+apiVersion: secrets.advok8s.io/v1beta1
+kind: ConfigMapBuilder
+metadata: {name: e2e-db-info, namespace: e2e-cmbuild}
+spec:
+  inputs:
+    secrets:
+    - name: db
+      secretRef: {name: e2e-db-creds}
+  generator:
+    script: |
+      configMap = {"data": {"username": input.secrets.db.data["username"]}}
+  regeneration: {onInputChange: true}
+`)
+
+				By("waiting for the derived ConfigMap, owned by the ConfigMapBuilder")
+				Eventually(func(g Gomega) {
+					out, err := kubectlGet("configmap", "e2e-db-info", "-n", "e2e-cmbuild", "-o", "jsonpath={.data.username}/{.metadata.ownerReferences[0].kind}")
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(out).To(Equal("app-reader/ConfigMapBuilder"))
+				}).Should(Succeed())
+
+				By("updating the input Secret and expecting an onInputChange refresh")
+				applyYAML(`
+apiVersion: v1
+kind: Secret
+metadata: {name: e2e-db-creds, namespace: e2e-cmbuild}
+type: Opaque
+stringData: {username: app-writer, password: never-published}
+`)
+				Eventually(func(g Gomega) {
+					out, err := kubectlGet("configmap", "e2e-db-info", "-n", "e2e-cmbuild", "-o", "jsonpath={.data.username}")
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(out).To(Equal("app-writer"))
+				}).Should(Succeed())
+			})
 		})
 
 		// TODO: Customize the e2e test suite with scenarios specific to your project.

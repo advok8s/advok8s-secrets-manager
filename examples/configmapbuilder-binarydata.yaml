@@ -1,0 +1,56 @@
+# ConfigMapBuilder - binaryData via the script generator
+#
+# Routes generator output between data and binaryData: placement in the
+# configMap global decides where a key lands. Values are raw - the script never
+# base64-encodes anything (the machinery handles wire encoding); data values
+# must be valid UTF-8, and binary content belongs in binaryData. The template
+# engine has no binaryData support, so binary output is script-only.
+#
+#   Apply:    kubectl apply -f examples/configmapbuilder-binarydata.yaml
+#   Verify:   kubectl get configmap branding -n demo-cmbuilder-binary -o yaml
+#   Clean up: kubectl delete -f examples/configmapbuilder-binarydata.yaml
+#
+# Requires the CRDs installed and the operator running.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-cmbuilder-binary
+---
+# Upstream ConfigMap carrying a base64 string in *data* (a common shape when
+# binary content was pasted into a manifest as text).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: artwork
+  namespace: demo-cmbuilder-binary
+data:
+  # A tiny binary payload, base64 as text: bytes ff 00 01.
+  logo.b64: /wAB
+---
+apiVersion: secrets.advok8s.io/v1beta1
+kind: ConfigMapBuilder
+metadata:
+  name: branding
+  namespace: demo-cmbuilder-binary
+spec:
+  inputs:
+    constants:
+      title: Demo Dashboard
+    configMaps:
+    - name: artwork
+      configMapRef:
+        name: artwork
+  generator:
+    script: |
+      # base64.decode returns bytes; routing them to binaryData stores the raw
+      # payload (the cluster shows it base64-encoded on the wire, as always).
+      logo = base64.decode(input.configMaps.artwork.data["logo.b64"])
+      configMap = {
+          "data": {
+              "title": input.constants.title,
+          },
+          "binaryData": {
+              "logo.png": logo,
+          },
+      }

@@ -1,7 +1,8 @@
 # advok8s-secrets-manager
 
-A Kubernetes operator that copies Secrets from a source namespace into one or
-more target namespaces and keeps the copies in sync.
+A Kubernetes operator that copies Secrets and ConfigMaps from a source
+namespace into one or more target namespaces and keeps the copies in sync, and
+generates Secrets and ConfigMaps from declared inputs.
 
 ## Description
 
@@ -12,25 +13,29 @@ operator. It copies and distributes Kubernetes Secrets across namespaces, and in
 references to them into service accounts.
 
 **Implemented:** `SecretCopier`, `SecretExporter`, `SecretImporter`,
-`SecretInjector`, `SecretBuilder`.
+`SecretInjector`, `SecretBuilder`, `ConfigMapCopier`, `ConfigMapBuilder`.
 
 The first four custom resources are functionally equivalent to the originals, so
 their behaviour is documented authoritatively by the Educates project rather than
-duplicated here. `SecretBuilder` is new in this implementation — it has no
-Educates counterpart (see below).
+duplicated here. `SecretBuilder`, `ConfigMapCopier` and `ConfigMapBuilder` are
+new in this implementation — they have no Educates counterpart (see below).
 
 - **Resource behaviour** — Educates custom-resource docs:
   [secret-copier](https://github.com/educates/educates-training-platform/blob/develop/project-docs/custom-resources/secret-copier.md)
   (and `secret-exporter`, `secret-importer`, `secret-injector`).
 - **How this implementation differs** — see [DIFFERENCES.md](DIFFERENCES.md).
   The most visible differences: the API group is `secrets.advok8s.io`, not
-  `secrets.educates.dev`, and this implementation adds `SecretBuilder`, a
-  net-new resource that generates a `Secret` from declared inputs via a Starlark
-  script or gotemplate template (documented in
-  [docs/secret-builder.md](docs/secret-builder.md)).
+  `secrets.educates.dev`, and this implementation adds three net-new resources:
+  `SecretBuilder` generates a `Secret` from declared inputs via a Starlark
+  script or gotemplate template ([docs/secret-builder.md](docs/secret-builder.md));
+  `ConfigMapBuilder` is its ConfigMap counterpart
+  ([docs/config-map-builder.md](docs/config-map-builder.md)); and
+  `ConfigMapCopier` distributes ConfigMaps across namespaces
+  ([docs/config-map-copier.md](docs/config-map-copier.md)).
 - **Field-level reference** — `kubectl explain secretcopier.spec` against an
   installed CRD.
-- **Runnable examples** — see [`config/samples/`](config/samples/).
+- **Runnable examples** — see [`config/samples/`](config/samples/) and
+  [`examples/`](examples/).
 
 ## Getting Started
 

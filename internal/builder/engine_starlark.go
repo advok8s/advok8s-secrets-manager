@@ -97,12 +97,19 @@ func (e *StarlarkEngine) Render(in *ResolvedInputs) (*Result, error) {
 		maxSteps = defaultMaxSteps
 	}
 
+	// threadName names the thread and the script "file" in error positions
+	// (e.g. "configmapbuilder.star:3:1"), so messages match the builder kind.
+	threadName := "secretbuilder"
+	if e.Kind == OutputConfigMap {
+		threadName = "configmapbuilder"
+	}
+
 	// libThread executes loaded libraries. Its Load rejects, so a library cannot
 	// itself load() another library - which keeps load() a top-level-script-only
 	// facility and makes load() cycles structurally impossible (no library can
 	// start a chain). Revisit if a real need for library-to-library load appears.
 	libThread := &starlark.Thread{
-		Name: "secretbuilder-library",
+		Name: threadName + "-library",
 		Load: func(_ *starlark.Thread, module string) (starlark.StringDict, error) {
 			return nil, fmt.Errorf("load(%q): load() is only available in the top-level script, not inside a loaded library", module)
 		},
@@ -111,7 +118,7 @@ func (e *StarlarkEngine) Render(in *ResolvedInputs) (*Result, error) {
 
 	loaded := map[string]starlark.StringDict{}
 	thread := &starlark.Thread{
-		Name: "secretbuilder",
+		Name: threadName,
 		Load: func(_ *starlark.Thread, module string) (starlark.StringDict, error) {
 			if g, ok := loaded[module]; ok {
 				return g, nil
@@ -131,7 +138,7 @@ func (e *StarlarkEngine) Render(in *ResolvedInputs) (*Result, error) {
 	}
 	thread.SetMaxExecutionSteps(maxSteps)
 
-	globals, err := starlark.ExecFileOptions(starlarkFileOptions, thread, "secretbuilder.star", e.Script, predeclared)
+	globals, err := starlark.ExecFileOptions(starlarkFileOptions, thread, threadName+".star", e.Script, predeclared)
 	if err != nil {
 		return nil, classifyEngineError(err)
 	}

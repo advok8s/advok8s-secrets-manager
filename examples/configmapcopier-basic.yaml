@@ -1,0 +1,51 @@
+# ConfigMapCopier - basic name-based copy
+#
+# Copies the "shared-settings" ConfigMap (including a binaryData key) from
+# demo-cmcopier-basic-source into demo-cmcopier-basic-target, selecting the
+# target namespace by exact name. There is no copyAuthorization for ConfigMaps:
+# distribution is admin-operated (the ConfigMapCopier is cluster-scoped). With
+# reclaimPolicy Delete the copy is owned by the ConfigMapCopier and is removed
+# when the ConfigMapCopier is deleted.
+#
+#   Apply:    kubectl apply -f examples/configmapcopier-basic.yaml
+#   Verify:   kubectl get configmap shared-settings -n demo-cmcopier-basic-target -o yaml
+#   Clean up: kubectl delete -f examples/configmapcopier-basic.yaml
+#
+# Requires the CRDs installed and the operator running.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-cmcopier-basic-source
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-cmcopier-basic-target
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shared-settings
+  namespace: demo-cmcopier-basic-source
+data:
+  environment: production
+  endpoint: https://api.example.com
+binaryData:
+  # A small binary payload (not valid UTF-8), carried as binaryData.
+  marker: /wAB
+---
+apiVersion: secrets.advok8s.io/v1beta1
+kind: ConfigMapCopier
+metadata:
+  name: demo-cmcopier-basic
+spec:
+  rules:
+  - sourceConfigMap:
+      name: shared-settings
+      namespace: demo-cmcopier-basic-source
+    targetNamespaces:
+      nameSelector:
+        matchNames:
+        - demo-cmcopier-basic-target
+    reclaimPolicy: Delete

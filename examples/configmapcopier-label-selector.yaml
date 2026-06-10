@@ -1,0 +1,60 @@
+# ConfigMapCopier - label-selected namespaces, renamed copy
+#
+# Copies the "org-defaults" ConfigMap into every namespace labelled
+# team=demo-cm-backend, renaming the copy to "defaults" and adding a label on
+# it. Labels on copies are reconciled as a managed subset: labels added to the
+# copy by anything else (e.g. an admission webhook) are left untouched.
+#
+#   Apply:    kubectl apply -f examples/configmapcopier-label-selector.yaml
+#   Verify:   kubectl get configmap defaults -n demo-cmcopier-team-a --show-labels
+#             kubectl get configmap defaults -n demo-cmcopier-team-b --show-labels
+#   Clean up: kubectl delete -f examples/configmapcopier-label-selector.yaml
+#
+# Requires the CRDs installed and the operator running.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-cmcopier-platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-cmcopier-team-a
+  labels:
+    team: demo-cm-backend
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-cmcopier-team-b
+  labels:
+    team: demo-cm-backend
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: org-defaults
+  namespace: demo-cmcopier-platform
+data:
+  log-level: info
+  region: eu-west-1
+---
+apiVersion: secrets.advok8s.io/v1beta1
+kind: ConfigMapCopier
+metadata:
+  name: demo-cmcopier-labels
+spec:
+  rules:
+  - sourceConfigMap:
+      name: org-defaults
+      namespace: demo-cmcopier-platform
+    targetNamespaces:
+      labelSelector:
+        matchLabels:
+          team: demo-cm-backend
+    targetConfigMap:
+      name: defaults
+      labels:
+        managed-by: advok8s-secrets-manager
+    reclaimPolicy: Delete

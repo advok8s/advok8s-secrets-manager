@@ -157,3 +157,27 @@ nothing here is a behavioural difference — the whole resource is the addition.
 shares the family's selector vocabulary (`SecretSelector`) and conventions
 (populated status, `Ready`/`Degraded` conditions, events, ownerReference-based
 garbage collection of its output).
+
+## ConfigMapCopier and ConfigMapBuilder
+
+### Added: net-new resources with no Educates equivalent
+
+The Educates `secrets-manager` manages Secrets only. This implementation adds
+ConfigMap counterparts for two of the patterns:
+
+- **`ConfigMapCopier`** — cluster-scoped, admin-operated distribution of
+  ConfigMaps across namespaces, mirroring SecretCopier **minus authorization**:
+  there is no ConfigMapImporter/ConfigMapExporter and no `copyAuthorization`
+  field. ConfigMaps carry no secret material, so the consent handshake that
+  motivates the Secret import/export machinery does not apply; tenant-level
+  sharing stays Secret-only by design. Documented in
+  `docs/config-map-copier.md`.
+- **`ConfigMapBuilder`** — generates a ConfigMap from declared inputs via a
+  Starlark script or gotemplate template, mirroring SecretBuilder with the
+  ConfigMap output contract (separate `data`/`binaryData`, no type) and
+  deliberately curated inputs: no `serviceAccount`, and `generated` restricted
+  to `uuid`/`randomInt`. Secret material is generated with a SecretBuilder and
+  its non-secret parts pulled in via a `secrets` input. Documented in
+  `docs/config-map-builder.md`.
+
+As with SecretBuilder, these are additions rather than divergences.

@@ -14,8 +14,9 @@ kubectl delete -f examples/<scenario>.yaml
 Each scenario uses its own uniquely named `demo-*` namespaces, so scenarios do
 not collide and deleting the file deletes everything it created (namespaced
 resources are removed when their namespace is deleted; the cluster-scoped
-SecretCopier is removed directly). Nothing here is referenced by a kustomization,
-so `make install` / `make deploy` never apply these.
+SecretCopier and ConfigMapCopier are removed directly). Nothing here is
+referenced by a kustomization, so `make install` / `make deploy` never apply
+these.
 
 Prerequisites: the CRDs installed (`make install`) and the operator running
 (`make deploy IMG=...`, or run locally).
@@ -37,6 +38,11 @@ Prerequisites: the CRDs installed (`make install`) and the operator running
 | [secretbuilder-template.yaml](secretbuilder-template.yaml) | A SecretBuilder using the gotemplate engine (`template:`) with Sprig functions instead of a Starlark script. |
 | [secretbuilder-chaining.yaml](secretbuilder-chaining.yaml) | Two chained SecretBuilders: an upstream password change propagates to a downstream builder via `onInputChange`. |
 | [secretbuilder-kubeconfig-merge.yaml](secretbuilder-kubeconfig-merge.yaml) | Two ServiceAccounts, each turned into a single-context kubeconfig (`kubeconfig.from_service_account`, distinct context names), then merged into one multi-context kubeconfig by a third builder (`kubeconfig.merge`). |
+| [configmapcopier-basic.yaml](configmapcopier-basic.yaml) | Copy a ConfigMap (including binaryData) to a target namespace selected by exact name; no copyAuthorization exists for ConfigMaps. |
+| [configmapcopier-label-selector.yaml](configmapcopier-label-selector.yaml) | Copy a ConfigMap to namespaces selected by label, renaming the copy and adding a label (managed-subset label reconciliation). |
+| [configmapbuilder-template.yaml](configmapbuilder-template.yaml) | A ConfigMapBuilder using the gotemplate engine over constants and a ConfigMap input. |
+| [configmapbuilder-derive-from-secret.yaml](configmapbuilder-derive-from-secret.yaml) | The canonical derive pattern: publish a TLS secret's `ca.crt` and a credentials secret's username into a ConfigMap while the key and password stay secret; `onInputChange` tracks rotation. |
+| [configmapbuilder-binarydata.yaml](configmapbuilder-binarydata.yaml) | Routing script output between `data` and `binaryData` (raw bytes, no author-side base64); binary output is script-only. |
 
 Each file's header comment lists the exact apply / verify / clean-up commands
 for that scenario.
