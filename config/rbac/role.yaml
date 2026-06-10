@@ -8,10 +8,14 @@ rules:
   - ""
   resources:
   - configmaps
-  - namespaces
+  - secrets
   verbs:
+  - create
+  - delete
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - ""
@@ -23,14 +27,10 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - secrets
+  - namespaces
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - ""
@@ -51,6 +51,7 @@ rules:
 - apiGroups:
   - secrets.advok8s.io
   resources:
+  - configmapcopiers
   - secretbuilders
   - secretcopiers
   - secretexporters
@@ -67,6 +68,7 @@ rules:
 - apiGroups:
   - secrets.advok8s.io
   resources:
+  - configmapcopiers/finalizers
   - secretbuilders/finalizers
   - secretcopiers/finalizers
   - secretexporters/finalizers
@@ -77,6 +79,7 @@ rules:
 - apiGroups:
   - secrets.advok8s.io
   resources:
+  - configmapcopiers/status
   - secretbuilders/status
   - secretcopiers/status
   - secretexporters/status

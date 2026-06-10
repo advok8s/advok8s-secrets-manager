@@ -220,6 +220,14 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "secretimporter")
 		os.Exit(1)
 	}
+	if err := (&controller.ConfigMapCopierReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorder("configmapcopier"),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "configmapcopier")
+		os.Exit(1)
+	}
 	if err := (&controller.SecretInjectorReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),

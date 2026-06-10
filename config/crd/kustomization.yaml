@@ -7,6 +7,7 @@ resources:
 - bases/secrets.advok8s.io_secretimporters.yaml
 - bases/secrets.advok8s.io_secretinjectors.yaml
 - bases/secrets.advok8s.io_secretbuilders.yaml
+- bases/secrets.advok8s.io_configmapcopiers.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:
