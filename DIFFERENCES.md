@@ -119,12 +119,14 @@ source-secret matching is a superset (see below).
 
 ### Added: `spec.syncPeriod` and populated `status`
 
-As for the other resources: a configurable `syncPeriod` (default `1m`, `"0s"` to
-disable) and a populated `status` (`observedGeneration`, `Ready`/`Degraded`
-conditions, and summary / per-rule counts: target namespaces, service accounts
-matched, injections in sync, failures). `injectionsInSync` counts references that
-are present, not a reconciled-to-exact total, because injections are never
-removed. The Educates implementation leaves status unmanaged.
+A configurable `syncPeriod` (default `1m`, `"0s"` to disable) — the injector is
+the one resource that retains this field; the copy-side resources are
+event-driven (see above) — and a populated `status` (`observedGeneration`,
+`Ready`/`Degraded` conditions, and summary / per-rule counts: target
+namespaces, service accounts matched, injections in sync, failures).
+`injectionsInSync` counts references that are present, not a
+reconciled-to-exact total, because injections are never removed. The Educates
+implementation leaves status unmanaged.
 
 ### Superset: richer `sourceSecrets` and `targetNamespaces` selectors
 
