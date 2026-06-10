@@ -23,7 +23,6 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
@@ -153,7 +152,7 @@ var _ = Describe("SecretCopier status", func() {
 			Eventually(func(g Gomega) {
 				copier := &secretsv1beta1.SecretCopier{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "status-copier-4"}, copier)).To(Succeed())
-				copier.Spec.SyncPeriod = &metav1.Duration{Duration: 45 * time.Second}
+				copier.Spec.Rules[0].TargetSecret.Labels = map[string]string{"bumped": "true"}
 				g.Expect(k8sClient.Update(ctx, copier)).To(Succeed())
 			}).Should(Succeed())
 

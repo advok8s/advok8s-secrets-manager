@@ -169,11 +169,11 @@ func (r *SecretExporterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	recordDegradedTransition(r.Recorder, &exporter, "Export", prevDegraded, status.Conditions)
 
-	if exporter.Spec.SyncPeriod != nil && exporter.Spec.SyncPeriod.Duration > 0 {
-		return ctrl.Result{RequeueAfter: exporter.Spec.SyncPeriod.Duration}, nil
-	}
+	// Convergence is event-driven (watches cover the source secret, target
+	// secrets, namespaces and importers); the fixed backstop requeue only
+	// bounds the staleness caused by a missed event.
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: backstopRequeue}, nil
 }
 
 // setConditions derives the Ready and Degraded conditions from the reconcile
@@ -293,14 +293,19 @@ func (r *SecretExporterReconciler) copySecretToNamespace(ctx context.Context, ex
 	})
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// SetupWithManager sets up the controller with the Manager. Convergence is
+// event-driven: secrets are watched (metadata only) both as the exporter's
+// source and as copy targets, namespaces for new/changed match candidates, and
+// importers so a copy awaiting authorization proceeds as soon as its importer
+// appears.
 func (r *SecretExporterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		// Only reconcile on spec changes, not on our own status writes.
 		For(&secretsv1beta1.SecretExporter{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(
 			&corev1.Secret{},
-			handler.EnqueueRequestsFromMapFunc(r.findExportersMatchingSourceSecret),
+			handler.EnqueueRequestsFromMapFunc(r.findExportersForSecret),
+			builder.OnlyMetadata,
 		).
 		Watches(
 			&corev1.Namespace{},
@@ -314,9 +319,13 @@ func (r *SecretExporterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// findExportersMatchingSourceSecret enqueues the exporter whose source secret
-// (the secret named the same as the exporter, in its namespace) is this secret.
-func (r *SecretExporterReconciler) findExportersMatchingSourceSecret(ctx context.Context, secret client.Object) []reconcile.Request {
+// findExportersForSecret enqueues exporters for which the changed secret is the
+// source (the secret named the same as the exporter, in its namespace) or
+// carries a rule's effective target name. The target-name match makes target
+// deletion, tampering and conflict clearance event-driven; it may over-enqueue
+// (a same-named secret elsewhere causes a no-op reconcile), which is harmless.
+// The watch delivers metadata only, so only ObjectMeta accessors may be used.
+func (r *SecretExporterReconciler) findExportersForSecret(ctx context.Context, secret client.Object) []reconcile.Request {
 	log := logf.FromContext(ctx)
 
 	var exporters secretsv1beta1.SecretExporterList
@@ -329,7 +338,22 @@ func (r *SecretExporterReconciler) findExportersMatchingSourceSecret(ctx context
 	var requests []reconcile.Request
 
 	for _, exporter := range exporters.Items {
-		if exporter.Namespace == secret.GetNamespace() && exporter.Name == secret.GetName() {
+		enqueue := exporter.Namespace == secret.GetNamespace() && exporter.Name == secret.GetName()
+
+		if !enqueue {
+			for _, rule := range exporter.Spec.Rules {
+				targetName := rule.TargetSecret.Name
+				if targetName == "" {
+					targetName = exporter.Name
+				}
+				if targetName == secret.GetName() {
+					enqueue = true
+					break
+				}
+			}
+		}
+
+		if enqueue {
 			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&exporter)})
 		}
 	}

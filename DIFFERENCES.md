@@ -21,26 +21,48 @@ and the plan for adding them, see the porting plan kept alongside the repository
 
 - **API group** is `secrets.advok8s.io` (not `secrets.educates.dev`). The
   version is `v1beta1`.
-- **Tracking annotations** on copied secrets follow the same rename:
-  `secrets.advok8s.io/copier-rule` (value `kind/name`, e.g. `secretcopier/x` or
-  `secretexporter/y`) and `secrets.advok8s.io/secret-name` (value
-  `namespace/name` of the source) — the `secrets.educates.dev/...` equivalents.
+- **Tracking annotations** on copied resources follow the same rename:
+  `secrets.advok8s.io/copier-rule` (value `kind/name`, e.g. `secretcopier/x`,
+  `secretexporter/y` or `configmapcopier/z`) and `secrets.advok8s.io/resource`
+  (value `namespace/name` of the source) — the `secrets.educates.dev/...`
+  equivalents. A third annotation, `secrets.advok8s.io/managed-labels`, records
+  the label keys the operator manages on each copy (see the label semantics
+  below).
 
 Because the group differs, secrets copied by the Educates operator are not
 recognised as managed by this one, and vice versa. This matters only if both
 operators are ever run against the same cluster, or during a migration.
 
+## Copy semantics (SecretCopier, SecretExporter, ConfigMapCopier)
+
+### Changed: event-driven convergence, no `spec.syncPeriod`
+
+The Educates implementation re-reconciles on a fixed internal 60-second timer.
+This implementation is event-driven: watches cover source changes, namespace
+lifecycle, importer changes, and target deletion / tampering / conflict
+clearance, so copies converge in response to the change rather than on a clock.
+A fixed internal 5-minute per-instance backstop requeue bounds the staleness
+caused by any missed event. There is no user-facing `syncPeriod` field on the
+copy-side resources.
+
+### Changed: managed-subset label reconciliation
+
+The labels on a copy are reconciled as a managed subset rather than as the
+whole label map. The operator records the label keys it manages (source labels
+plus the rule's target labels) in the `secrets.advok8s.io/managed-labels`
+annotation, re-asserts exactly those keys, and removes a key only when it was
+previously managed and is no longer expected. Labels outside the managed set —
+for example labels injected at admission by a Kyverno or Gatekeeper mutating
+policy — are neither compared nor touched, so the operator never fights an
+admission webhook in a reconcile loop. The practical behaviour is unchanged for
+clusters without label-injecting webhooks.
+
+Annotations on a copy are never compared or rewritten after creation, so
+third-party annotations persist. Note the sharp edge this implies: stripping
+the tracking annotations from a copy orphans it (the operator reports a
+conflict and stops updating it).
+
 ## SecretCopier
-
-### Added: `spec.syncPeriod`
-
-The Educates implementation re-reconciles on a fixed internal timer. This
-implementation exposes the interval as `spec.syncPeriod` (a duration string):
-
-- unset → defaults to `1m`,
-- `"0s"` → disables periodic re-sync (copies still update in response to source
-  secret and namespace changes),
-- a positive value → re-reconcile at that interval.
 
 ### Added: populated `status`
 
@@ -59,12 +81,12 @@ Behaviourally equivalent to the Educates resource (the exporter's own name is th
 source secret; each copy requires a paired SecretImporter, which becomes the
 copy's owner; an omitted shared secret defaults to the exporter's UID).
 
-### Added: `spec.syncPeriod` and populated `status`
+### Added: populated `status`
 
-As for SecretCopier: a configurable `syncPeriod` (default `1m`, `"0s"` to
-disable), and a populated `status` (`observedGeneration`, `Ready`/`Degraded`
-conditions, `sourceExists`, and summary / per-rule counts including
-`awaitingAuthorization`). The Educates implementation leaves status unmanaged.
+As for SecretCopier, a populated `status` (`observedGeneration`,
+`Ready`/`Degraded` conditions, `sourceExists`, and summary / per-rule counts
+including `awaitingAuthorization`). The Educates implementation leaves status
+unmanaged. Convergence is event-driven (see the copy semantics section above).
 
 ## SecretImporter
 

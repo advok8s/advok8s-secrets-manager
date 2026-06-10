@@ -229,6 +229,7 @@ func (r *SecretImporterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.findImporterForSecret),
+			builder.OnlyMetadata,
 		).
 		Watches(
 			&secretsv1beta1.SecretExporter{},

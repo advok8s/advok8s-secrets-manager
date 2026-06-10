@@ -281,22 +281,17 @@ func (r *SecretCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	recordDegradedTransition(r.Recorder, &secretCopier, "Copy", prevDegraded, status.Conditions)
 
-	// Requeue the request based on the synchronizaion period defined for the
-	// SecretCopier. This is to ensure that we periodically check for case where
-	// the target secret has been deleted and we need to recreate it. We do this
-	// on an interval rather than detecting the deletion of the target secret
-	// and recreating it immediately to avoid thrashing the system.
+	// Convergence is event-driven (watches cover source secrets, namespaces,
+	// importers, and target secrets); the fixed backstop requeue only bounds
+	// the staleness caused by a missed event.
 
-	if secretCopier.Spec.SyncPeriod != nil && secretCopier.Spec.SyncPeriod.Duration > 0 {
-		return ctrl.Result{RequeueAfter: secretCopier.Spec.SyncPeriod.Duration}, nil
-	}
-
-	// No need to requeue the request.
-
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: backstopRequeue}, nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// SetupWithManager sets up the controller with the Manager. Convergence is
+// event-driven: secrets are watched (metadata only) both as rule sources and as
+// copy targets, namespaces for new/changed match candidates, and importers so a
+// copy gated by copyAuthorization proceeds as soon as its importer appears.
 func (r *SecretCopierReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		// Only reconcile on spec changes (generation bumps), not on our own
@@ -304,22 +299,30 @@ func (r *SecretCopierReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&secretsv1beta1.SecretCopier{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(
 			&corev1.Secret{},
-			handler.EnqueueRequestsFromMapFunc(r.findSecretCopiersMatchingSourceSecret),
+			handler.EnqueueRequestsFromMapFunc(r.findSecretCopiersForSecret),
+			builder.OnlyMetadata,
 		).
 		Watches(
 			&corev1.Namespace{},
 			handler.EnqueueRequestsFromMapFunc(r.findSecretCopiersMatchingTargetNamespace),
 		).
+		Watches(
+			&secretsv1beta1.SecretImporter{},
+			handler.EnqueueRequestsFromMapFunc(r.findSecretCopiersForImporter),
+		).
 		Named("secretcopier").
 		Complete(r)
 }
 
-// Handler function to find SecretCopier objects that match a source secret.
-// This is used to trigger a reconciliation of the SecretCopier object when a
-// secret is created or updated. This is necessary as we need to determine if
-// the secret is one that the SecretCopier is interested in and copy it to any
-// target namespaces if it is.
-func (r *SecretCopierReconciler) findSecretCopiersMatchingSourceSecret(ctx context.Context, secret client.Object) []reconcile.Request {
+// findSecretCopiersForSecret enqueues copiers for which the changed secret is a
+// rule's source, or carries a rule's effective target name. The source match
+// triggers copies when sources appear or change; the target-name match makes
+// target deletion, tampering and conflict clearance (a foreign secret occupying
+// the target name being removed) event-driven. Matching by name rather than by
+// the managed-by annotation may over-enqueue (a same-named secret in a
+// non-target namespace causes a no-op reconcile), which is harmless. The watch
+// delivers metadata only, so only ObjectMeta accessors may be used here.
+func (r *SecretCopierReconciler) findSecretCopiersForSecret(ctx context.Context, secret client.Object) []reconcile.Request {
 	log := logf.FromContext(ctx)
 
 	// Fetch the list of SecretCopier objects.
@@ -334,20 +337,61 @@ func (r *SecretCopierReconciler) findSecretCopiersMatchingSourceSecret(ctx conte
 	}
 
 	// Iterate over the list of SecretCopier objects and determine if any match
-	// on it as the source secret.
+	// on it as a source secret or by effective target name.
 
 	var requests []reconcile.Request
 
 	for _, secretCopier := range secretCopiers.Items {
 		for _, rule := range secretCopier.Spec.Rules {
-			if rule.SourceSecret.Name == secret.GetName() && rule.SourceSecret.Namespace == secret.GetNamespace() {
-				log.V(1).Info("Queue reconcile for source Secret against SecretCopier", "name", secretCopier.Name, "rule", rule, "secret", secret.GetName(), "namespace", secret.GetNamespace())
+			sourceMatch := rule.SourceSecret.Name == secret.GetName() && rule.SourceSecret.Namespace == secret.GetNamespace()
+
+			targetName := rule.TargetSecret.Name
+			if targetName == "" {
+				targetName = rule.SourceSecret.Name
+			}
+			targetMatch := targetName == secret.GetName()
+
+			if sourceMatch || targetMatch {
+				log.V(1).Info("Queue reconcile for Secret against SecretCopier", "name", secretCopier.Name, "secret", secret.GetName(), "namespace", secret.GetNamespace())
 
 				requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&secretCopier)})
 
 				// We only need to match on one rule for the secret, so break out
 				// of the loop once we have found one.
 
+				break
+			}
+		}
+	}
+
+	return requests
+}
+
+// findSecretCopiersForImporter enqueues copiers having a rule whose effective
+// target secret name matches the changed importer, so a copy held in
+// AwaitingAuthorization proceeds as soon as a matching importer appears or is
+// corrected, without waiting for the backstop.
+func (r *SecretCopierReconciler) findSecretCopiersForImporter(ctx context.Context, object client.Object) []reconcile.Request {
+	log := logf.FromContext(ctx)
+
+	var secretCopiers secretsv1beta1.SecretCopierList
+
+	if err := r.List(ctx, &secretCopiers, &client.ListOptions{}); err != nil {
+		log.Error(err, "Unable to list SecretCopier objects")
+		return nil
+	}
+
+	var requests []reconcile.Request
+
+	for _, secretCopier := range secretCopiers.Items {
+		for _, rule := range secretCopier.Spec.Rules {
+			targetName := rule.TargetSecret.Name
+			if targetName == "" {
+				targetName = rule.SourceSecret.Name
+			}
+
+			if targetName == object.GetName() {
+				requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&secretCopier)})
 				break
 			}
 		}

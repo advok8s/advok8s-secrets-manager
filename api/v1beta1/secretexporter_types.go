@@ -44,12 +44,6 @@ type SecretExporterRule struct {
 type SecretExporterSpec struct {
 	// A list of rules for exporting this exporter's secret to other namespaces.
 	Rules []SecretExporterRule `json:"rules,omitempty"`
-
-	// The interval at which to re-synchronise copied secrets. Leave unset to
-	// use the default; set to "0s" to disable the periodic re-sync (copies are
-	// still updated in response to source secret and namespace changes).
-	// +kubebuilder:default="1m"
-	SyncPeriod *metav1.Duration `json:"syncPeriod,omitempty"`
 }
 
 // SecretExporterCounts holds copy outcome counts, used for both the aggregate

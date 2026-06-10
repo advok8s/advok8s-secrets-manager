@@ -25,11 +25,13 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -163,6 +165,20 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "dc911fa3.advok8s.io",
+		// Secrets and ConfigMaps are watched metadata-only (the enqueue map
+		// functions need only ObjectMeta) and read live: caching the full
+		// content of every Secret and ConfigMap in the cluster would bound the
+		// operator's memory by cluster size rather than by what it actually
+		// references. Reads are targeted (a builder's declared inputs, a copy
+		// rule's source and targets) and reconciles are event-driven, so the
+		// live-read rate tracks the rate of change, not the cluster size.
+		// Namespaces stay fully cached: filtering terminating namespaces needs
+		// status.phase, which a metadata-only watch does not carry.
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}},
+			},
+		},
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly

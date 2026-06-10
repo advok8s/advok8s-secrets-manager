@@ -424,19 +424,16 @@ func (r *SecretBuilderReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&secretsv1beta1.SecretBuilder{}, ctrlbuilder.WithPredicates(
 			predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{}))).
-		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.findBuildersForSecret)).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.findBuildersForSecret), ctrlbuilder.OnlyMetadata).
+		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.findBuildersForConfigMap), ctrlbuilder.OnlyMetadata).
 		Named("secretbuilder").
 		Complete(r)
 }
 
 // findBuildersForSecret enqueues onInputChange builders whose secret inputs match
 // the changed Secret, carrying upstream-revision propagation through the chain.
+// The watch delivers metadata only, so only ObjectMeta accessors may be used.
 func (r *SecretBuilderReconciler) findBuildersForSecret(ctx context.Context, object client.Object) []reconcile.Request {
-	secret, ok := object.(*corev1.Secret)
-	if !ok {
-		return nil
-	}
-
 	var builders secretsv1beta1.SecretBuilderList
 	if err := r.List(ctx, &builders); err != nil {
 		return nil
@@ -445,11 +442,11 @@ func (r *SecretBuilderReconciler) findBuildersForSecret(ctx context.Context, obj
 	var requests []reconcile.Request
 	for i := range builders.Items {
 		b := builders.Items[i]
-		if !b.Spec.Regeneration.OnInputChange || b.Namespace != secret.Namespace {
+		if !b.Spec.Regeneration.OnInputChange || b.Namespace != object.GetNamespace() {
 			continue
 		}
 		for j := range b.Spec.Inputs.Secrets {
-			if matchesSecretInput(&b.Spec.Inputs.Secrets[j], secret) {
+			if matchesSecretInput(&b.Spec.Inputs.Secrets[j], object) {
 				requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&b)})
 				break
 			}
@@ -458,12 +455,48 @@ func (r *SecretBuilderReconciler) findBuildersForSecret(ctx context.Context, obj
 	return requests
 }
 
-func matchesSecretInput(input *secretsv1beta1.SecretInput, secret *corev1.Secret) bool {
+// findBuildersForConfigMap enqueues onInputChange builders whose configMap
+// inputs match the changed ConfigMap (whether referenced as data or as the
+// source of a Starlark library), so a ConfigMap input change refreshes
+// dependent builders just like a Secret input change does.
+func (r *SecretBuilderReconciler) findBuildersForConfigMap(ctx context.Context, object client.Object) []reconcile.Request {
+	var builders secretsv1beta1.SecretBuilderList
+	if err := r.List(ctx, &builders); err != nil {
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for i := range builders.Items {
+		b := builders.Items[i]
+		if !b.Spec.Regeneration.OnInputChange || b.Namespace != object.GetNamespace() {
+			continue
+		}
+		for j := range b.Spec.Inputs.ConfigMaps {
+			if matchesConfigMapInput(&b.Spec.Inputs.ConfigMaps[j], object) {
+				requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&b)})
+				break
+			}
+		}
+	}
+	return requests
+}
+
+func matchesSecretInput(input *secretsv1beta1.SecretInput, secret metav1.Object) bool {
 	if input.SecretRef != nil {
-		return input.SecretRef.Name == secret.Name
+		return input.SecretRef.Name == secret.GetName()
 	}
 	if input.Selector != nil {
-		return input.Selector.Matches(&secret.ObjectMeta)
+		return input.Selector.Matches(secret)
+	}
+	return false
+}
+
+func matchesConfigMapInput(input *secretsv1beta1.ConfigMapInput, configMap metav1.Object) bool {
+	if input.ConfigMapRef != nil {
+		return input.ConfigMapRef.Name == configMap.GetName()
+	}
+	if input.Selector != nil {
+		return input.Selector.Matches(configMap)
 	}
 	return false
 }

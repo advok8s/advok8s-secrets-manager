@@ -287,6 +287,7 @@ func (r *SecretInjectorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.findInjectorsMatchingSecret),
+			builder.OnlyMetadata,
 		).
 		Watches(
 			&corev1.ServiceAccount{},
@@ -301,15 +302,11 @@ func (r *SecretInjectorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // findInjectorsMatchingSecret enqueues injectors with a rule whose source
-// secret selector matches the changed secret.
+// secret selector matches the changed secret. The watch delivers metadata only,
+// so only ObjectMeta accessors may be used.
 func (r *SecretInjectorReconciler) findInjectorsMatchingSecret(ctx context.Context, object client.Object) []reconcile.Request {
-	secret, ok := object.(*corev1.Secret)
-	if !ok {
-		return nil
-	}
-
 	return r.injectorsMatching(ctx, func(rule *secretsv1beta1.SecretInjectorRule) bool {
-		return rule.SourceSecrets.Matches(&secret.ObjectMeta)
+		return rule.SourceSecrets.Matches(object)
 	})
 }
 
