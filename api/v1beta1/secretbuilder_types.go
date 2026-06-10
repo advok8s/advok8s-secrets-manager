@@ -535,6 +535,7 @@ type SecretBuilderStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:validation:XValidation:rule="self.metadata.name.size() <= 230",message="name must be at most 230 characters so the companion state Secret name fits the 253-character object name limit"
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="Generated",type=boolean,JSONPath=".status.generated"
 // +kubebuilder:printcolumn:name="Last Generated",type=date,JSONPath=".status.lastGeneratedTime"

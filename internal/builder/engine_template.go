@@ -32,10 +32,17 @@ import (
 // .serviceAccount, .generated); the FuncMap is Sprig plus the recipe functions
 // and the fail/retry/required outcome funcs. missingkey=error makes referencing
 // an absent key a generation error rather than emitting "<no value>".
+//
+// For the ConfigMap output kind there is deliberately no binaryData support:
+// templates render UTF-8 text (the template source itself lives in a CRD string
+// field), so every rendered data value must be valid UTF-8 - splicing a binary
+// secret value through a template is caught by the shared validation. Binary
+// output requires the script generator, where raw bytes are first-class.
 type TemplateEngine struct {
 	Data           map[string]string // output key -> template source
-	Type           string            // optional gotemplate for the Secret type
+	Type           string            // optional gotemplate for the Secret type (Secret kind only)
 	Labels         map[string]string // optional label-value gotemplates
+	Kind           OutputKind        // output contract (default OutputSecret)
 	MaxOutputBytes int
 }
 
@@ -77,12 +84,12 @@ func (e *TemplateEngine) Render(in *ResolvedInputs) (*Result, error) {
 		}
 		total += len(out)
 		if total > maxOut {
-			return nil, fmt.Errorf("generated Secret data exceeds %d bytes", maxOut)
+			return nil, fmt.Errorf("generated %s data exceeds %d bytes", e.Kind.name(), maxOut)
 		}
 		result.Data[key] = []byte(out)
 	}
 
-	if e.Type != "" {
+	if e.Kind != OutputConfigMap && e.Type != "" {
 		t, err := render("type", e.Type)
 		if err != nil {
 			return nil, err
@@ -96,6 +103,12 @@ func (e *TemplateEngine) Render(in *ResolvedInputs) (*Result, error) {
 			return nil, err
 		}
 		result.Labels[key] = v
+	}
+
+	if e.Kind == OutputConfigMap {
+		if err := validateConfigMapResult(result); err != nil {
+			return nil, err
+		}
 	}
 
 	return result, nil

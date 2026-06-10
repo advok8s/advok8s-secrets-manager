@@ -20,7 +20,29 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 )
+
+// OutputKind selects which output object a generator engine produces, and with
+// it the output contract: a Secret (the script's `secret` global / a per-key
+// template map with an optional type) or a ConfigMap (the script's `configMap`
+// global with separate data and binaryData dicts, no type).
+type OutputKind int
+
+const (
+	// OutputSecret is the SecretBuilder contract (the default).
+	OutputSecret OutputKind = iota
+	// OutputConfigMap is the ConfigMapBuilder contract.
+	OutputConfigMap
+)
+
+// name returns the kind for use in error messages.
+func (k OutputKind) name() string {
+	if k == OutputConfigMap {
+		return "ConfigMap"
+	}
+	return "Secret"
+}
 
 // classifyEngineError surfaces a script/template fail() or retry() as the
 // corresponding sentinel (both engines wrap them in their own evaluation error,
@@ -38,13 +60,36 @@ func classifyEngineError(err error) error {
 	return err
 }
 
-// Result is what a generator engine produces: the Secret's data (decoded - the
-// engine works in plaintext, the controller base64-encodes on write), plus any
-// labels and the Secret type the script chose.
+// Result is what a generator engine produces: the output's data (decoded - the
+// engine works in raw values, serialization base64-encodes on the wire), plus
+// any labels and, per output kind, the Secret type (Secret only) or binaryData
+// (ConfigMap only - raw bytes, never base64-encoded by the author).
 type Result struct {
-	Data   map[string][]byte
-	Labels map[string]string
-	Type   string
+	Data       map[string][]byte
+	BinaryData map[string][]byte
+	Labels     map[string]string
+	Type       string
+}
+
+// validateConfigMapResult enforces the parts of the ConfigMap output contract
+// that the Kubernetes API makes real: values landing in data must be valid
+// UTF-8 (binary content belongs in binaryData - relying on the API server is
+// unsafe, as invalid UTF-8 in a string can be silently corrupted during JSON
+// serialization), and a key must not appear in both data and binaryData (the
+// API server rejects the duplicate). Shared by both engines so the errors are
+// identical whichever generator produced the output.
+func validateConfigMapResult(result *Result) error {
+	for _, key := range sortedKeysBytes(result.Data) {
+		if !utf8.Valid(result.Data[key]) {
+			return fmt.Errorf("configMap data[%q] is not valid UTF-8; binary content belongs in binaryData", key)
+		}
+	}
+	for _, key := range sortedKeysBytes(result.BinaryData) {
+		if _, duplicate := result.Data[key]; duplicate {
+			return fmt.Errorf("key %q appears in both configMap data and binaryData", key)
+		}
+	}
+	return nil
 }
 
 // RetryError signals a script retry(): inputs exist but are not yet ready, so the

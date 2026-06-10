@@ -43,12 +43,19 @@ const (
 )
 
 // StarlarkEngine renders a Starlark script. The script reads the predeclared
-// `input` and recipe modules, may load() declared libraries, and must set a
-// `secret = {"data": {...}, "labels": {...}, "type": "..."}` global. It is
-// sandboxed: no I/O, no clock (generatedAt is the only time source), a step cap
-// and an output-size cap.
+// `input` and recipe modules, may load() declared libraries, and must set the
+// output global for its kind: for a Secret a
+// `secret = {"data": {...}, "labels": {...}, "type": "..."}` global; for a
+// ConfigMap a `configMap = {"data": {...}, "binaryData": {...}, "labels": {...}}`
+// global, where placement decides the destination map, both dicts accept str or
+// bytes values (raw - the author never base64-encodes anything), data values
+// must be valid UTF-8, and a key may not appear in both dicts. It is sandboxed:
+// no I/O, no clock (generatedAt is the only time source), a step cap and an
+// output-size cap.
 type StarlarkEngine struct {
 	Script string
+	// Kind selects the output contract (default OutputSecret).
+	Kind OutputKind
 	// MaxSteps overrides the execution-step cap (0 = default).
 	MaxSteps uint64
 	// MaxOutputBytes overrides the output-size cap (0 = default).
@@ -129,14 +136,25 @@ func (e *StarlarkEngine) Render(in *ResolvedInputs) (*Result, error) {
 		return nil, classifyEngineError(err)
 	}
 
-	secretVal, ok := globals["secret"]
-	if !ok || secretVal == starlark.None {
-		return nil, fmt.Errorf("script did not set the 'secret' global")
-	}
-
 	maxOut := e.MaxOutputBytes
 	if maxOut == 0 {
 		maxOut = defaultMaxOutputBytes
+	}
+
+	if e.Kind == OutputConfigMap {
+		configMapVal, ok := globals["configMap"]
+		if !ok || configMapVal == starlark.None {
+			if secretVal, isSecret := globals["secret"]; isSecret && secretVal != starlark.None {
+				return nil, fmt.Errorf("script set a 'secret' global but this builder produces a ConfigMap; set the 'configMap' global instead")
+			}
+			return nil, fmt.Errorf("script did not set the 'configMap' global")
+		}
+		return parseConfigMapOutput(configMapVal, maxOut)
+	}
+
+	secretVal, ok := globals["secret"]
+	if !ok || secretVal == starlark.None {
+		return nil, fmt.Errorf("script did not set the 'secret' global")
 	}
 	return parseSecretOutput(secretVal, maxOut)
 }
@@ -218,6 +236,84 @@ func parseSecretOutput(value starlark.Value, maxBytes int) (*Result, error) {
 			return nil, fmt.Errorf("'secret.type' must be a string")
 		}
 		result.Type = s
+	}
+
+	return result, nil
+}
+
+// parseConfigMapOutput reads the script's configMap global: separate data and
+// binaryData dicts (placement decides the destination; both accept str or
+// bytes values raw), plus optional labels. At least one of data/binaryData must
+// be present. The shared validateConfigMapResult enforces UTF-8 in data and
+// rejects keys present in both dicts; the size cap counts both maps together.
+func parseConfigMapOutput(value starlark.Value, maxBytes int) (*Result, error) {
+	out, err := fromStarlark(value)
+	if err != nil {
+		return nil, fmt.Errorf("reading 'configMap': %w", err)
+	}
+	m, ok := out.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("'configMap' must be a dict, got %T", out)
+	}
+
+	result := &Result{Data: map[string][]byte{}, BinaryData: map[string][]byte{}, Labels: map[string]string{}}
+
+	dataRaw, hasData := m["data"]
+	binaryRaw, hasBinary := m["binaryData"]
+	if !hasData && !hasBinary {
+		return nil, fmt.Errorf("'configMap' must have a 'data' or 'binaryData' field")
+	}
+
+	total := 0
+	parseInto := func(raw any, field string, dest map[string][]byte) error {
+		if raw == nil {
+			return nil
+		}
+		dataMap, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("'configMap.%s' must be a dict", field)
+		}
+		for _, k := range sortedKeys(dataMap) {
+			b, err := toBytes(dataMap[k])
+			if err != nil {
+				return fmt.Errorf("configMap.%s[%q]: %w", field, k, err)
+			}
+			total += len(b)
+			if total > maxBytes {
+				return fmt.Errorf("generated ConfigMap data exceeds %d bytes", maxBytes)
+			}
+			dest[k] = b
+		}
+		return nil
+	}
+
+	if hasData {
+		if err := parseInto(dataRaw, "data", result.Data); err != nil {
+			return nil, err
+		}
+	}
+	if hasBinary {
+		if err := parseInto(binaryRaw, "binaryData", result.BinaryData); err != nil {
+			return nil, err
+		}
+	}
+
+	if labelsRaw, ok := m["labels"]; ok && labelsRaw != nil {
+		labelsMap, ok := labelsRaw.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("'configMap.labels' must be a dict")
+		}
+		for k, v := range labelsMap {
+			s, ok := v.(string)
+			if !ok {
+				return nil, fmt.Errorf("configMap.labels[%q] must be a string", k)
+			}
+			result.Labels[k] = s
+		}
+	}
+
+	if err := validateConfigMapResult(result); err != nil {
+		return nil, err
 	}
 
 	return result, nil

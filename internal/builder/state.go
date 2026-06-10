@@ -32,6 +32,13 @@ func CompanionSecretName(builderName string) string {
 	return builderName + "-secretbuilder-state"
 }
 
+// CompanionConfigMapBuilderStateName is the companion for a ConfigMapBuilder.
+// The companion is always a Secret regardless of the output kind: generated
+// material is entropy and must never land in a ConfigMap.
+func CompanionConfigMapBuilderStateName(builderName string) string {
+	return builderName + "-configmapbuilder-state"
+}
+
 // RegenerateAnnotation, when set on a SecretBuilder to a new value, triggers a
 // manual rotation (the kubectl rollout-restart idiom). The controller records the
 // last-handled value in status so each new value rotates exactly once.

@@ -83,7 +83,11 @@ func secret(name string, labels map[string]string, data map[string]string) *core
 
 func resolve(t *testing.T, r *Resolver, sb *secretsv1beta1.SecretBuilder) (*ResolvedInputs, []Pending) {
 	t.Helper()
-	in, pending, err := r.Resolve(context.Background(), sb, fixedTime)
+	in, pending, err := r.Resolve(context.Background(), ResolveRequest{
+		Object:      sb,
+		Inputs:      InputsForSecretBuilder(&sb.Spec.Inputs),
+		GeneratedAt: fixedTime,
+	})
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}

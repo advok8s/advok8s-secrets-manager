@@ -117,7 +117,11 @@ func (r *SecretBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// depends on it and is fixed once the action is known).
 	now := metav1.Now()
 	resolver := &sb.Resolver{Client: r.Client, TokenMinter: r.TokenMinter, ClusterServer: r.ClusterServer}
-	resolved, pending, err := resolver.Resolve(ctx, &builder, now.Time)
+	resolved, pending, err := resolver.Resolve(ctx, sb.ResolveRequest{
+		Object:      &builder,
+		Inputs:      sb.InputsForSecretBuilder(&builder.Spec.Inputs),
+		GeneratedAt: now.Time,
+	})
 	if err != nil {
 		setConditions(&status, builder.Generation, metav1.ConditionFalse, "InvalidInput", err.Error(),
 			metav1.ConditionTrue, "InvalidInput", err.Error())

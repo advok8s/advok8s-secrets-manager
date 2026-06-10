@@ -142,7 +142,43 @@ type ResolvedInputs struct {
 	Generated      map[string]any
 }
 
-// Resolver resolves a SecretBuilder's declared inputs against the cluster.
+// Inputs is the kind-neutral, normalized form of a builder's declared inputs.
+// Each builder controller assembles one from its own spec type (the
+// SecretBuilder's inputs convert verbatim; the ConfigMapBuilder's curated
+// generated union converts to the full GeneratedValue form and never carries a
+// ServiceAccount), so the resolver, generation and persistence machinery is
+// shared without the API types having to be.
+type Inputs struct {
+	Constants      *runtime.RawExtension
+	Secrets        []secretsv1beta1.SecretInput
+	ConfigMaps     []secretsv1beta1.ConfigMapInput
+	ServiceAccount *secretsv1beta1.ServiceAccountInput
+	Generated      []secretsv1beta1.GeneratedValue
+	Libraries      []secretsv1beta1.LibraryReference
+}
+
+// InputsForSecretBuilder normalizes a SecretBuilder's declared inputs.
+func InputsForSecretBuilder(in *secretsv1beta1.SecretBuilderInputs) Inputs {
+	return Inputs{
+		Constants:      in.Constants,
+		Secrets:        in.Secrets,
+		ConfigMaps:     in.ConfigMaps,
+		ServiceAccount: in.ServiceAccount,
+		Generated:      in.Generated,
+		Libraries:      in.Libraries,
+	}
+}
+
+// ResolveRequest is one builder's resolution request: the builder object (its
+// ObjectMeta is the generator's input.context), its normalized inputs, and the
+// persisted "now" anchoring time-bound material.
+type ResolveRequest struct {
+	Object      client.Object
+	Inputs      Inputs
+	GeneratedAt time.Time
+}
+
+// Resolver resolves a builder's declared inputs against the cluster.
 type Resolver struct {
 	Client client.Client
 	// TokenMinter mints ServiceAccount tokens. Required only when a SecretBuilder
@@ -169,20 +205,23 @@ func ClusterAPIServerURL() string {
 	return "https://kubernetes.default.svc"
 }
 
-// Resolve turns the SecretBuilder's inputs into a bundle. It returns the resolved
+// Resolve turns a builder's inputs into a bundle. It returns the resolved
 // inputs (always non-nil), any pending inputs (the caller holds generation when
 // non-empty), and an error for hard failures (API errors, invalid spec). The
 // generatedAt timestamp is supplied by the caller (the persisted "now"), never
 // read from a clock here, to keep generation deterministic.
-func (r *Resolver) Resolve(ctx context.Context, sb *secretsv1beta1.SecretBuilder, generatedAt time.Time) (*ResolvedInputs, []Pending, error) {
+func (r *Resolver) Resolve(ctx context.Context, req ResolveRequest) (*ResolvedInputs, []Pending, error) {
+	object := req.Object
+	inputs := req.Inputs
+
 	resolved := &ResolvedInputs{
 		Context: Context{
-			Namespace:   sb.Namespace,
-			Name:        sb.Name,
-			Labels:      sb.Labels,
-			Annotations: sb.Annotations,
-			UID:         string(sb.UID),
-			GeneratedAt: generatedAt,
+			Namespace:   object.GetNamespace(),
+			Name:        object.GetName(),
+			Labels:      object.GetLabels(),
+			Annotations: object.GetAnnotations(),
+			UID:         string(object.GetUID()),
+			GeneratedAt: req.GeneratedAt,
 		},
 		Secrets:    map[string]*SecretBinding{},
 		ConfigMaps: map[string]*ConfigMapBinding{},
@@ -192,29 +231,29 @@ func (r *Resolver) Resolve(ctx context.Context, sb *secretsv1beta1.SecretBuilder
 
 	var pending []Pending
 
-	constants, err := decodeConstants(sb.Spec.Inputs.Constants)
+	constants, err := decodeConstants(inputs.Constants)
 	if err != nil {
 		return resolved, nil, fmt.Errorf("inputs.constants: %w", err)
 	}
 	resolved.Constants = constants
 
-	secretsPending, err := r.resolveSecrets(ctx, sb, resolved)
+	secretsPending, err := r.resolveSecrets(ctx, inputs, object.GetNamespace(), resolved)
 	if err != nil {
 		return resolved, nil, err
 	}
 	pending = append(pending, secretsPending...)
 
-	configMapsPending, err := r.resolveConfigMaps(ctx, sb, resolved)
+	configMapsPending, err := r.resolveConfigMaps(ctx, inputs, object.GetNamespace(), resolved)
 	if err != nil {
 		return resolved, nil, err
 	}
 	pending = append(pending, configMapsPending...)
 
-	if err := r.resolveLibraries(sb, resolved); err != nil {
+	if err := r.resolveLibraries(inputs, resolved); err != nil {
 		return resolved, nil, err
 	}
 
-	saPending, err := r.resolveServiceAccount(ctx, sb, resolved)
+	saPending, err := r.resolveServiceAccount(ctx, inputs, object.GetNamespace(), resolved)
 	if err != nil {
 		return resolved, nil, err
 	}
@@ -263,16 +302,16 @@ func (in *ResolvedInputs) Fingerprint() string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func (r *Resolver) resolveSecrets(ctx context.Context, sb *secretsv1beta1.SecretBuilder, resolved *ResolvedInputs) ([]Pending, error) {
+func (r *Resolver) resolveSecrets(ctx context.Context, inputs Inputs, namespace string, resolved *ResolvedInputs) ([]Pending, error) {
 	var pending []Pending
 
-	for i := range sb.Spec.Inputs.Secrets {
-		input := sb.Spec.Inputs.Secrets[i]
+	for i := range inputs.Secrets {
+		input := inputs.Secrets[i]
 
 		switch {
 		case input.SecretRef != nil:
 			var secret corev1.Secret
-			err := r.Client.Get(ctx, client.ObjectKey{Namespace: sb.Namespace, Name: input.SecretRef.Name}, &secret)
+			err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: input.SecretRef.Name}, &secret)
 			if apierrors.IsNotFound(err) {
 				pending = append(pending, Pending{ReasonAwaitingInput, fmt.Sprintf("secret %q for input %q not found", input.SecretRef.Name, input.Name)})
 				continue
@@ -284,7 +323,7 @@ func (r *Resolver) resolveSecrets(ctx context.Context, sb *secretsv1beta1.Secret
 
 		case input.Selector != nil:
 			var list corev1.SecretList
-			if err := r.Client.List(ctx, &list, client.InNamespace(sb.Namespace)); err != nil {
+			if err := r.Client.List(ctx, &list, client.InNamespace(namespace)); err != nil {
 				return nil, fmt.Errorf("listing secrets for input %q: %w", input.Name, err)
 			}
 			var matched []*ResolvedSecret
@@ -308,16 +347,16 @@ func (r *Resolver) resolveSecrets(ctx context.Context, sb *secretsv1beta1.Secret
 	return pending, nil
 }
 
-func (r *Resolver) resolveConfigMaps(ctx context.Context, sb *secretsv1beta1.SecretBuilder, resolved *ResolvedInputs) ([]Pending, error) {
+func (r *Resolver) resolveConfigMaps(ctx context.Context, inputs Inputs, namespace string, resolved *ResolvedInputs) ([]Pending, error) {
 	var pending []Pending
 
-	for i := range sb.Spec.Inputs.ConfigMaps {
-		input := sb.Spec.Inputs.ConfigMaps[i]
+	for i := range inputs.ConfigMaps {
+		input := inputs.ConfigMaps[i]
 
 		switch {
 		case input.ConfigMapRef != nil:
 			var cm corev1.ConfigMap
-			err := r.Client.Get(ctx, client.ObjectKey{Namespace: sb.Namespace, Name: input.ConfigMapRef.Name}, &cm)
+			err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: input.ConfigMapRef.Name}, &cm)
 			if apierrors.IsNotFound(err) {
 				pending = append(pending, Pending{ReasonAwaitingInput, fmt.Sprintf("configMap %q for input %q not found", input.ConfigMapRef.Name, input.Name)})
 				continue
@@ -329,7 +368,7 @@ func (r *Resolver) resolveConfigMaps(ctx context.Context, sb *secretsv1beta1.Sec
 
 		case input.Selector != nil:
 			var list corev1.ConfigMapList
-			if err := r.Client.List(ctx, &list, client.InNamespace(sb.Namespace)); err != nil {
+			if err := r.Client.List(ctx, &list, client.InNamespace(namespace)); err != nil {
 				return nil, fmt.Errorf("listing configMaps for input %q: %w", input.Name, err)
 			}
 			var matched []*ResolvedConfigMap
@@ -355,9 +394,9 @@ func (r *Resolver) resolveConfigMaps(ctx context.Context, sb *secretsv1beta1.Sec
 
 // resolveLibraries sources each load() module from a key of a referenced
 // ConfigMap (a single configMapRef handle). It runs after configMaps are resolved.
-func (r *Resolver) resolveLibraries(sb *secretsv1beta1.SecretBuilder, resolved *ResolvedInputs) error {
-	for i := range sb.Spec.Inputs.Libraries {
-		lib := sb.Spec.Inputs.Libraries[i]
+func (r *Resolver) resolveLibraries(inputs Inputs, resolved *ResolvedInputs) error {
+	for i := range inputs.Libraries {
+		lib := inputs.Libraries[i]
 
 		binding, ok := resolved.ConfigMaps[lib.From]
 		if !ok {
@@ -378,14 +417,14 @@ func (r *Resolver) resolveLibraries(sb *secretsv1beta1.SecretBuilder, resolved *
 	return nil
 }
 
-func (r *Resolver) resolveServiceAccount(ctx context.Context, sb *secretsv1beta1.SecretBuilder, resolved *ResolvedInputs) ([]Pending, error) {
-	spec := sb.Spec.Inputs.ServiceAccount
+func (r *Resolver) resolveServiceAccount(ctx context.Context, inputs Inputs, namespace string, resolved *ResolvedInputs) ([]Pending, error) {
+	spec := inputs.ServiceAccount
 	if spec == nil {
 		return nil, nil
 	}
 
 	var sa corev1.ServiceAccount
-	err := r.Client.Get(ctx, client.ObjectKey{Namespace: sb.Namespace, Name: spec.ServiceAccountRef.Name}, &sa)
+	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: spec.ServiceAccountRef.Name}, &sa)
 	if apierrors.IsNotFound(err) {
 		return []Pending{{ReasonMissingServiceAcc, fmt.Sprintf("serviceAccount %q not found", spec.ServiceAccountRef.Name)}}, nil
 	}
@@ -397,17 +436,17 @@ func (r *Resolver) resolveServiceAccount(ctx context.Context, sb *secretsv1beta1
 		return nil, fmt.Errorf("serviceAccount input declared but no token minter configured")
 	}
 
-	token, err := r.TokenMinter.MintToken(ctx, sb.Namespace, spec.ServiceAccountRef.Name, spec.Audiences, spec.ExpirationSeconds)
+	token, err := r.TokenMinter.MintToken(ctx, namespace, spec.ServiceAccountRef.Name, spec.Audiences, spec.ExpirationSeconds)
 	if err != nil {
 		return nil, fmt.Errorf("minting token for serviceAccount %q: %w", spec.ServiceAccountRef.Name, err)
 	}
 
 	resolved.ServiceAccount = &ResolvedServiceAccount{
 		Name:          spec.ServiceAccountRef.Name,
-		Namespace:     sb.Namespace,
+		Namespace:     namespace,
 		Token:         token,
 		ClusterServer: r.ClusterServer,
-		ClusterCACert: r.clusterCACert(ctx, sb.Namespace),
+		ClusterCACert: r.clusterCACert(ctx, namespace),
 	}
 
 	return nil, nil

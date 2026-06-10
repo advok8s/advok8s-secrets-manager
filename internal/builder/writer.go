@@ -85,6 +85,56 @@ func WriteSecret(ctx context.Context, c client.Client, scheme *runtime.Scheme, o
 	return err
 }
 
+// ConfigMapWriteRequest is the assembled output for WriteConfigMap. The
+// controller owns the merge of spec.output with the engine Result before
+// calling. Data and BinaryData are raw values; serialization base64-encodes
+// binaryData on the wire.
+type ConfigMapWriteRequest struct {
+	Name        string
+	Namespace   string
+	Labels      map[string]string
+	Annotations map[string]string
+	Data        map[string]string
+	BinaryData  map[string][]byte
+	Revision    string
+}
+
+// WriteConfigMap creates or updates the output ConfigMap owned by owner.
+// Labels, annotations (including the revision) are merged additively; data and
+// binaryData are replaced wholesale as a pair on every write, so a key
+// migrating between the two maps converges cleanly.
+func WriteConfigMap(ctx context.Context, c client.Client, scheme *runtime.Scheme, owner client.Object, req ConfigMapWriteRequest) error {
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: req.Name, Namespace: req.Namespace},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, c, configMap, func() error {
+		if configMap.UID == "" { // creating
+			if err := controllerutil.SetControllerReference(owner, configMap, scheme); err != nil {
+				return err
+			}
+		}
+
+		if configMap.Labels == nil {
+			configMap.Labels = map[string]string{}
+		}
+		maps.Copy(configMap.Labels, req.Labels)
+
+		if configMap.Annotations == nil {
+			configMap.Annotations = map[string]string{}
+		}
+		maps.Copy(configMap.Annotations, req.Annotations)
+		if req.Revision != "" {
+			configMap.Annotations[RevisionAnnotation] = req.Revision
+		}
+
+		configMap.Data = req.Data
+		configMap.BinaryData = req.BinaryData
+		return nil
+	})
+	return err
+}
+
 // RevisionOf is a stable, content-derived revision of the produced data. It is
 // stamped on the output Secret so downstream builders observe changes and is
 // recorded in status. It changes only when the produced data changes.
@@ -100,5 +150,36 @@ func RevisionOf(data map[string][]byte) string {
 		h.Write(data[k])
 		h.Write([]byte{0})
 	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// ConfigMapRevisionOf is RevisionOf over both ConfigMap maps, with domain
+// separation between data and binaryData so moving a key between them changes
+// the revision. It is stamped under the same revision annotation as Secret
+// outputs, so cross-kind builder chaining observes changes uniformly.
+func ConfigMapRevisionOf(data map[string]string, binaryData map[string][]byte) string {
+	h := sha256.New()
+
+	keys := make([]string, 0, len(data))
+	for k := range data {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		_, _ = fmt.Fprintf(h, "d:%s=%s", k, data[k])
+		h.Write([]byte{0})
+	}
+
+	keys = keys[:0]
+	for k := range binaryData {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		_, _ = fmt.Fprintf(h, "b:%s=", k)
+		h.Write(binaryData[k])
+		h.Write([]byte{0})
+	}
+
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
