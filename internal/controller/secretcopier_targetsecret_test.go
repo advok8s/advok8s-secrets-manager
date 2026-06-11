@@ -20,8 +20,10 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
 	"github.com/advok8s/advok8s-secrets-manager/internal/copyengine"
 )
 
@@ -56,6 +58,69 @@ var _ = Describe("SecretCopier shaping the target secret", func() {
 			// The source secret itself is left untouched.
 			source := eventuallyGetSecret("shape-src", "original-name")
 			Expect(source.Labels).To(Equal(map[string]string{"env": "prod"}))
+		})
+	})
+
+	Context("when the rule sets target annotations", func() {
+		It("applies them as a managed subset and reconciles rule edits", func() {
+			createNamespace("annot-src")
+			createNamespace("annot-tgt")
+			createOpaqueSecret("annot-src", defaultSourceSecretName,
+				map[string]string{"key1": "value1"}, nil)
+
+			copier := createSecretCopier("annot-copier", copyRule(ruleOptions{
+				SourceNamespace:   "annot-src",
+				SourceName:        defaultSourceSecretName,
+				TargetName:        defaultTargetSecretName,
+				TargetAnnotations: map[string]string{"example.com/team": "a", "example.com/tier": "1"},
+				MatchNames:        []string{"annot-tgt"},
+			}))
+
+			// The copy carries the rule's annotations, records them as managed,
+			// and never copies the source's own annotations.
+			target := eventuallyGetSecret("annot-tgt", defaultTargetSecretName)
+			Expect(target.Annotations).To(HaveKeyWithValue("example.com/team", "a"))
+			Expect(target.Annotations).To(HaveKeyWithValue("example.com/tier", "1"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedAnnotations, "example.com/team,example.com/tier"))
+
+			// Editing the rule reconciles the managed subset: the dropped key is
+			// removed, the changed key updated, tracking annotations intact.
+			// (Re-fetch and retry: the controller's status writes race this update.)
+			Eventually(func(g Gomega) {
+				fresh := &secretsv1beta1.SecretCopier{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(copier), fresh)).To(Succeed())
+				fresh.Spec.Rules[0].TargetSecret.Annotations = map[string]string{"example.com/team": "b"}
+				g.Expect(k8sClient.Update(ctx, fresh)).To(Succeed())
+			}, secretCreatedTimeout).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				updated := &corev1.Secret{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{
+					Namespace: "annot-tgt",
+					Name:      defaultTargetSecretName,
+				}, updated)).To(Succeed())
+				g.Expect(updated.Annotations).To(HaveKeyWithValue("example.com/team", "b"))
+				g.Expect(updated.Annotations).ToNot(HaveKey("example.com/tier"))
+				g.Expect(updated.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedBy, "secretcopier/annot-copier"))
+			}, secretCreatedTimeout).Should(Succeed())
+		})
+
+		It("rejects annotation keys under the operator-owned prefix at admission", func() {
+			copier := &secretsv1beta1.SecretCopier{
+				ObjectMeta: metav1.ObjectMeta{Name: "annot-reserved"},
+				Spec: secretsv1beta1.SecretCopierSpec{Rules: []secretsv1beta1.SecretCopierRule{
+					copyRule(ruleOptions{
+						SourceNamespace:   "annot-src",
+						SourceName:        defaultSourceSecretName,
+						TargetName:        defaultTargetSecretName,
+						TargetAnnotations: map[string]string{"secrets.advok8s.io/resource": "spoof"},
+						MatchNames:        []string{"annot-tgt"},
+					}),
+				}},
+			}
+			err := k8sClient.Create(ctx, copier)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("secrets.advok8s.io/ prefix"))
 		})
 	})
 

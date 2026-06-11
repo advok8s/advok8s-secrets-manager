@@ -151,7 +151,7 @@ func TestSourceChanged(t *testing.T) {
 				Data:       c.targetData,
 				ObjectMeta: metav1.ObjectMeta{Labels: c.targetLabels, Annotations: annotations},
 			}
-			if got := SourceChanged(source, target, c.extraLabels); got != c.expected {
+			if got := SourceChanged(source, target, c.extraLabels, nil); got != c.expected {
 				t.Errorf("SourceChanged() = %v, want %v", got, c.expected)
 			}
 		})
@@ -261,12 +261,12 @@ func TestApplyManagedLabels(t *testing.T) {
 	}
 }
 
-func TestEncodeManagedLabelKeys(t *testing.T) {
-	got := encodeManagedLabelKeys(map[string]string{"b": "2", "a": "1", "c/d": "3"})
+func TestEncodeManagedKeys(t *testing.T) {
+	got := encodeManagedKeys(map[string]string{"b": "2", "a": "1", "c/d": "3"})
 	if got != "a,b,c/d" {
-		t.Errorf("encodeManagedLabelKeys() = %q, want %q", got, "a,b,c/d")
+		t.Errorf("encodeManagedKeys() = %q, want %q", got, "a,b,c/d")
 	}
-	if got := encodeManagedLabelKeys(nil); got != "" {
-		t.Errorf("encodeManagedLabelKeys(nil) = %q, want empty", got)
+	if got := encodeManagedKeys(nil); got != "" {
+		t.Errorf("encodeManagedKeys(nil) = %q, want empty", got)
 	}
 }

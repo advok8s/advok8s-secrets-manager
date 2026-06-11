@@ -181,6 +181,50 @@ var _ = Describe("ConfigMapCopier", func() {
 		})
 	})
 
+	Context("with target annotations on the rule", func() {
+		It("applies them as a managed subset and reconciles rule edits", func() {
+			createNamespace("cmc-src-annot")
+			createNamespace("cmc-tgt-annot")
+			createConfigMap("cmc-src-annot", "app-config", sourceData, nil, nil)
+
+			rule := configMapCopyRule("cmc-src-annot", "app-config", "", "", "cmc-tgt-annot")
+			rule.TargetConfigMap.Annotations = map[string]string{"example.com/origin": "platform", "example.com/tier": "1"}
+			copier := createConfigMapCopier("cmc-copier-annot", rule)
+
+			target := eventuallyGetConfigMap("cmc-tgt-annot", "app-config")
+			Expect(target.Annotations).To(HaveKeyWithValue("example.com/origin", "platform"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedAnnotations, "example.com/origin,example.com/tier"))
+
+			// Editing the rule reconciles the managed subset on the copy.
+			// (Re-fetch and retry: the controller's status writes race this update.)
+			Eventually(func(g Gomega) {
+				fresh := &secretsv1beta1.ConfigMapCopier{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(copier), fresh)).To(Succeed())
+				fresh.Spec.Rules[0].TargetConfigMap.Annotations = map[string]string{"example.com/origin": "updated"}
+				g.Expect(k8sClient.Update(ctx, fresh)).To(Succeed())
+			}, secretCreatedTimeout).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				updated := &corev1.ConfigMap{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: "cmc-tgt-annot", Name: "app-config"}, updated)).To(Succeed())
+				g.Expect(updated.Annotations).To(HaveKeyWithValue("example.com/origin", "updated"))
+				g.Expect(updated.Annotations).ToNot(HaveKey("example.com/tier"))
+			}, secretCreatedTimeout).Should(Succeed())
+		})
+
+		It("rejects annotation keys under the operator-owned prefix at admission", func() {
+			rule := configMapCopyRule("cmc-src-annot", "app-config", "", "", "cmc-tgt-annot")
+			rule.TargetConfigMap.Annotations = map[string]string{"secrets.advok8s.io/copier-rule": "spoof"}
+			copier := &secretsv1beta1.ConfigMapCopier{
+				ObjectMeta: metav1.ObjectMeta{Name: "cmc-annot-reserved"},
+				Spec:       secretsv1beta1.ConfigMapCopierSpec{Rules: []secretsv1beta1.ConfigMapCopierRule{rule}},
+			}
+			err := k8sClient.Create(ctx, copier)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("secrets.advok8s.io/ prefix"))
+		})
+	})
+
 	Context("with the Retain reclaim policy", func() {
 		It("creates the copy without an owner reference", func() {
 			createNamespace("cmc-src-4")

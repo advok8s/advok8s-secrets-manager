@@ -50,6 +50,13 @@ type ConfigMapRequest struct {
 	// labels on the copy.
 	TargetLabels map[string]string
 
+	// TargetAnnotations are annotations applied to the copy, reconciled under
+	// managed-subset semantics like labels (annotations outside this set are
+	// never compared or touched). Source annotations are never copied. Keys
+	// under the operator-owned annotation prefix are rejected at admission by
+	// the CRD schema.
+	TargetAnnotations map[string]string
+
 	// ManagedByValue is stamped under AnnotationManagedBy and used for conflict
 	// detection: an existing target is only updated when its annotation matches
 	// this value (and the source annotation matches the source identity).
@@ -92,24 +99,28 @@ func (e *Engine) CopyConfigMap(ctx context.Context, req ConfigMapRequest) Outcom
 	}
 
 	// If the target configmap does not exist, create it. Labels are a copy of
-	// those from the source, overlaid with any extra labels for the target.
-	// Tracking annotations record the owning rule, the source configmap, and
-	// the label keys the operator manages. Owner references, if any, drive
-	// garbage collection.
+	// those from the source, overlaid with any extra labels for the target;
+	// annotations are the rule's target annotations only (source annotations
+	// are never copied). Tracking annotations record the owning rule, the
+	// source configmap, and the label and annotation keys the operator manages.
+	// Owner references, if any, drive garbage collection.
 
 	if err != nil {
 		log.V(1).Info("Creating target configmap", "targetConfigMap", req.TargetName, "targetNamespace", req.TargetNamespace)
 
+		annotations := overlayLabels(req.TargetAnnotations, map[string]string{
+			AnnotationManagedBy:          req.ManagedByValue,
+			AnnotationSourceResource:     sourceRef,
+			AnnotationManagedLabels:      encodeManagedKeys(expectedLabels),
+			AnnotationManagedAnnotations: encodeManagedKeys(req.TargetAnnotations),
+		})
+
 		targetConfigMap = corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      req.TargetName,
-				Namespace: req.TargetNamespace,
-				Labels:    expectedLabels,
-				Annotations: map[string]string{
-					AnnotationManagedBy:      req.ManagedByValue,
-					AnnotationSourceResource: sourceRef,
-					AnnotationManagedLabels:  encodeManagedLabelKeys(expectedLabels),
-				},
+				Name:            req.TargetName,
+				Namespace:       req.TargetNamespace,
+				Labels:          expectedLabels,
+				Annotations:     annotations,
 				OwnerReferences: req.OwnerReferences,
 			},
 			Data:       req.Source.Data,
@@ -136,18 +147,17 @@ func (e *Engine) CopyConfigMap(ctx context.Context, req ConfigMapRequest) Outcom
 	}
 
 	// Update the target configmap only if it has drifted from the source.
-	// Labels follow managed-subset semantics (applyManagedLabels must run
-	// before the managed-labels annotation is rewritten). Owner references are
-	// intentionally left as they were set on creation.
+	// Labels and annotations follow managed-subset semantics (the apply helpers
+	// must run before the managed-keys tracking annotations are rewritten).
+	// Owner references are intentionally left as they were set on creation.
 
-	if ConfigMapSourceChanged(req.Source, &targetConfigMap, req.TargetLabels) {
+	if ConfigMapSourceChanged(req.Source, &targetConfigMap, req.TargetLabels, req.TargetAnnotations) {
 		log.V(1).Info("Updating target configmap", "targetConfigMap", req.TargetName, "targetNamespace", req.TargetNamespace)
 
 		targetConfigMap.Labels = applyManagedLabels(&targetConfigMap, expectedLabels)
-		if targetConfigMap.Annotations == nil {
-			targetConfigMap.Annotations = map[string]string{}
-		}
-		targetConfigMap.Annotations[AnnotationManagedLabels] = encodeManagedLabelKeys(expectedLabels)
+		targetConfigMap.Annotations = applyManagedAnnotations(&targetConfigMap, req.TargetAnnotations)
+		targetConfigMap.Annotations[AnnotationManagedLabels] = encodeManagedKeys(expectedLabels)
+		targetConfigMap.Annotations[AnnotationManagedAnnotations] = encodeManagedKeys(req.TargetAnnotations)
 		targetConfigMap.Data = req.Source.Data
 		targetConfigMap.BinaryData = req.Source.BinaryData
 
@@ -164,10 +174,11 @@ func (e *Engine) CopyConfigMap(ctx context.Context, req ConfigMapRequest) Outcom
 
 // ConfigMapSourceChanged reports whether the target ConfigMap has drifted from
 // the source and therefore needs re-syncing. It compares both data maps (data
-// and binaryData) and the managed labels (the source's labels overlaid with
-// the extra target labels, under managed-subset semantics - labels outside the
-// managed set are ignored).
-func ConfigMapSourceChanged(source, target *corev1.ConfigMap, extraLabels map[string]string) bool {
+// and binaryData), the managed labels (the source's labels overlaid with the
+// extra target labels) and the managed annotations (the rule's target
+// annotations), both under managed-subset semantics - keys outside the managed
+// sets are ignored.
+func ConfigMapSourceChanged(source, target *corev1.ConfigMap, extraLabels, extraAnnotations map[string]string) bool {
 	if !mapStringStringEqual(source.Data, target.Data) {
 		return true
 	}
@@ -176,5 +187,9 @@ func ConfigMapSourceChanged(source, target *corev1.ConfigMap, extraLabels map[st
 		return true
 	}
 
-	return labelsDrift(target, overlayLabels(source.Labels, extraLabels))
+	if labelsDrift(target, overlayLabels(source.Labels, extraLabels)) {
+		return true
+	}
+
+	return annotationsDrift(target, extraAnnotations)
 }

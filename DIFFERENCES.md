@@ -25,9 +25,9 @@ and the plan for adding them, see the porting plan kept alongside the repository
   `secrets.advok8s.io/copier-rule` (value `kind/name`, e.g. `secretcopier/x`,
   `secretexporter/y` or `configmapcopier/z`) and `secrets.advok8s.io/resource`
   (value `namespace/name` of the source) — the `secrets.educates.dev/...`
-  equivalents. A third annotation, `secrets.advok8s.io/managed-labels`, records
-  the label keys the operator manages on each copy (see the label semantics
-  below).
+  equivalents. Two further annotations, `secrets.advok8s.io/managed-labels` and
+  `secrets.advok8s.io/managed-annotations`, record the label and annotation
+  keys the operator manages on each copy (see the copy semantics below).
 
 Because the group differs, secrets copied by the Educates operator are not
 recognised as managed by this one, and vice versa. This matters only if both
@@ -58,10 +58,32 @@ policy — are neither compared nor touched, so the operator never fights an
 admission webhook in a reconcile loop. The practical behaviour is unchanged for
 clusters without label-injecting webhooks.
 
-Annotations on a copy are never compared or rewritten after creation, so
-third-party annotations persist. Note the sharp edge this implies: stripping
+Annotations outside the managed set (below) are never compared or rewritten,
+so third-party annotations persist. Note the sharp edge this implies: stripping
 the tracking annotations from a copy orphans it (the operator reports a
 conflict and stops updating it).
+
+### Added: `targetSecret.annotations` / `targetConfigMap.annotations`
+
+The Educates rules can set extra labels on a copy but not annotations. This
+implementation adds an `annotations` map alongside `labels` on the rule's
+target (`targetSecret.annotations` on SecretCopier and SecretExporter,
+`targetConfigMap.annotations` on ConfigMapCopier) for annotating copies for
+downstream consumers. Two deliberate properties:
+
+- **Source annotations are still never copied** — annotations are often
+  controller-specific instructions that must not propagate verbatim. Only the
+  rule's explicit, fixed values are applied.
+- **Reconciled as a managed subset**, exactly like labels: the managed keys are
+  recorded in the `secrets.advok8s.io/managed-annotations` annotation,
+  re-asserted when tampered with, and removed when dropped from the rule;
+  everything outside the set is untouched.
+
+Annotation keys under the operator-owned `secrets.advok8s.io/` prefix are
+rejected at admission (the tracking annotations live there). To keep that CEL
+rule within the API server's validation cost budget, `annotations` is capped
+at 32 keys and `spec.rules` at 100 entries on these resources — neither limit
+is plausible to hit in practice.
 
 ## SecretCopier
 

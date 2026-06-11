@@ -89,6 +89,12 @@ const (
 	// injection in a reconcile loop. The recorded set is how a label removed
 	// from the source is also removed from the target.
 	AnnotationManagedLabels = "secrets.advok8s.io/managed-labels"
+	// AnnotationManagedAnnotations records the annotation keys the operator
+	// manages on the target (the rule's target annotations), with the same
+	// managed-subset semantics as AnnotationManagedLabels: annotations outside
+	// this set - including these tracking annotations and anything set by
+	// third parties - are neither compared nor touched.
+	AnnotationManagedAnnotations = "secrets.advok8s.io/managed-annotations"
 )
 
 // Engine performs resource copies against a Kubernetes client.
@@ -128,7 +134,7 @@ func TargetManagedBy(target metav1.Object, managedByValue, sourceRef string) boo
 	return true
 }
 
-// ---- label semantics (managed-subset) -------------------------------------
+// ---- managed-subset semantics (labels and annotations) ---------------------
 
 // overlayLabels returns a new map of the base labels overlaid with the extra
 // labels (extra wins on conflict). The result is always non-nil.
@@ -139,20 +145,21 @@ func overlayLabels(base, extra map[string]string) map[string]string {
 	return labels
 }
 
-// managedLabelKeys returns the label keys recorded as managed on the target
-// (from AnnotationManagedLabels). A missing or empty annotation yields nil.
-func managedLabelKeys(target metav1.Object) []string {
-	raw := target.GetAnnotations()[AnnotationManagedLabels]
+// managedKeys returns the keys recorded as managed on the target under the
+// given tracking annotation (AnnotationManagedLabels or
+// AnnotationManagedAnnotations). A missing or empty annotation yields nil.
+func managedKeys(target metav1.Object, recordAnnotation string) []string {
+	raw := target.GetAnnotations()[recordAnnotation]
 	if raw == "" {
 		return nil
 	}
 	return strings.Split(raw, ",")
 }
 
-// encodeManagedLabelKeys serialises the managed key set for
-// AnnotationManagedLabels: sorted, comma-joined. Label keys cannot contain
-// commas, so the encoding is unambiguous.
-func encodeManagedLabelKeys(expected map[string]string) string {
+// encodeManagedKeys serialises a managed key set for its tracking annotation:
+// sorted, comma-joined. Neither label nor annotation keys can contain commas,
+// so the encoding is unambiguous.
+func encodeManagedKeys(expected map[string]string) string {
 	keys := make([]string, 0, len(expected))
 	for k := range expected {
 		keys = append(keys, k)
@@ -161,21 +168,19 @@ func encodeManagedLabelKeys(expected map[string]string) string {
 	return strings.Join(keys, ",")
 }
 
-// labelsDrift reports whether the target's labels need re-syncing under
+// managedSubsetDrift reports whether the current map needs re-syncing under
 // managed-subset semantics: an expected key is missing or has the wrong value,
-// or a previously managed key is no longer expected but still present. Labels
+// or a previously managed key is no longer expected but still present. Keys
 // outside the managed set are invisible to the comparison, so admission-time
-// label injection never triggers an update.
-func labelsDrift(target metav1.Object, expected map[string]string) bool {
-	current := target.GetLabels()
-
+// injection never triggers an update.
+func managedSubsetDrift(current map[string]string, managed []string, expected map[string]string) bool {
 	for key, value := range expected {
 		if got, ok := current[key]; !ok || got != value {
 			return true
 		}
 	}
 
-	for _, key := range managedLabelKeys(target) {
+	for _, key := range managed {
 		if _, isExpected := expected[key]; isExpected {
 			continue
 		}
@@ -187,16 +192,14 @@ func labelsDrift(target metav1.Object, expected map[string]string) bool {
 	return false
 }
 
-// applyManagedLabels returns the target's labels with the expected set applied
-// and stale previously-managed keys removed. Labels outside both sets (owned
-// by someone else, e.g. an admission webhook) are preserved untouched. It must
-// be called before the AnnotationManagedLabels annotation is rewritten, since
-// it reads the previously managed set from the target.
-func applyManagedLabels(target metav1.Object, expected map[string]string) map[string]string {
-	out := make(map[string]string, len(target.GetLabels())+len(expected))
-	maps.Copy(out, target.GetLabels())
+// applyManagedSubset returns the current map with the expected set applied and
+// stale previously-managed keys removed. Keys outside both sets (owned by
+// someone else, e.g. an admission webhook) are preserved untouched.
+func applyManagedSubset(current map[string]string, managed []string, expected map[string]string) map[string]string {
+	out := make(map[string]string, len(current)+len(expected))
+	maps.Copy(out, current)
 
-	for _, key := range managedLabelKeys(target) {
+	for _, key := range managed {
 		if _, isExpected := expected[key]; !isExpected {
 			delete(out, key)
 		}
@@ -204,6 +207,28 @@ func applyManagedLabels(target metav1.Object, expected map[string]string) map[st
 
 	maps.Copy(out, expected)
 	return out
+}
+
+// labelsDrift / annotationsDrift report whether the target's labels /
+// annotations need re-syncing under managed-subset semantics.
+func labelsDrift(target metav1.Object, expected map[string]string) bool {
+	return managedSubsetDrift(target.GetLabels(), managedKeys(target, AnnotationManagedLabels), expected)
+}
+
+func annotationsDrift(target metav1.Object, expected map[string]string) bool {
+	return managedSubsetDrift(target.GetAnnotations(), managedKeys(target, AnnotationManagedAnnotations), expected)
+}
+
+// applyManagedLabels / applyManagedAnnotations return the target's labels /
+// annotations with the expected set applied and stale previously-managed keys
+// removed. Both must be called before the managed-keys tracking annotations
+// are rewritten, since they read the previously managed set from the target.
+func applyManagedLabels(target metav1.Object, expected map[string]string) map[string]string {
+	return applyManagedSubset(target.GetLabels(), managedKeys(target, AnnotationManagedLabels), expected)
+}
+
+func applyManagedAnnotations(target metav1.Object, expected map[string]string) map[string]string {
+	return applyManagedSubset(target.GetAnnotations(), managedKeys(target, AnnotationManagedAnnotations), expected)
 }
 
 // ---- map equality ----------------------------------------------------------

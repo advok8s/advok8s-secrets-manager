@@ -281,15 +281,16 @@ func (r *SecretExporterReconciler) copySecretToNamespace(ctx context.Context, ex
 	engine := copyengine.Engine{Client: r.Client}
 
 	return engine.CopySecret(ctx, copyengine.Request{
-		Source:          secret,
-		SourceNamespace: exporter.Namespace,
-		SourceName:      exporter.Name,
-		TargetNamespace: targetNamespace,
-		TargetName:      targetSecretName,
-		TargetLabels:    rule.TargetSecret.Labels,
-		ManagedByValue:  "secretexporter/" + exporter.Name,
-		OwnerReferences: ownerReferences,
-		Authorize:       func(context.Context) bool { return authorized },
+		Source:            secret,
+		SourceNamespace:   exporter.Namespace,
+		SourceName:        exporter.Name,
+		TargetNamespace:   targetNamespace,
+		TargetName:        targetSecretName,
+		TargetLabels:      rule.TargetSecret.Labels,
+		TargetAnnotations: rule.TargetSecret.Annotations,
+		ManagedByValue:    "secretexporter/" + exporter.Name,
+		OwnerReferences:   ownerReferences,
+		Authorize:         func(context.Context) bool { return authorized },
 	})
 }
 

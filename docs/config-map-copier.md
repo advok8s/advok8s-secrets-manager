@@ -47,6 +47,8 @@ spec:
       name: settings            # defaults to the source name
       labels:                   # extra labels overlaid on the copy
         managed-by: advok8s-secrets-manager
+      annotations:              # annotations applied to the copy
+        example.com/origin: platform
     reclaimPolicy: Delete       # Delete (default) | Retain
 ```
 
@@ -75,9 +77,16 @@ A copy is a full replacement, continuously converged:
   Gatekeeper mutating policy stamping labels at admission — are neither
   compared nor touched, so the operator never fights an admission webhook in a
   reconcile loop.
-- **Annotations on a copy are never compared or rewritten** after creation, so
-  third-party annotations persist. The sharp edge: the tracking annotations
-  live in that same unguarded space — stripping
+- **Annotations follow the same managed-subset model.** Source annotations are
+  **never** copied (annotations are often controller-specific instructions
+  that must not propagate verbatim); the rule's ``targetConfigMap.annotations``
+  are applied explicitly, recorded in the
+  ``secrets.advok8s.io/managed-annotations`` annotation, and reconciled exactly
+  like managed labels — re-asserted when tampered with, removed when dropped
+  from the rule. Keys under the operator-owned ``secrets.advok8s.io/`` prefix
+  are rejected at admission. Annotations outside the managed set are never
+  compared or rewritten, so third-party annotations persist. The sharp edge:
+  the tracking annotations live in that same unguarded space — stripping
   ``secrets.advok8s.io/copier-rule`` or ``secrets.advok8s.io/resource`` from a
   copy orphans it (the operator reports a conflict and stops updating it).
 

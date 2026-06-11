@@ -129,7 +129,7 @@ func TestConfigMapSourceChanged(t *testing.T) {
 				BinaryData: c.targetBinary,
 				ObjectMeta: metav1.ObjectMeta{Labels: c.targetLabels, Annotations: annotations},
 			}
-			if got := ConfigMapSourceChanged(source, target, c.extraLabels); got != c.expected {
+			if got := ConfigMapSourceChanged(source, target, c.extraLabels, nil); got != c.expected {
 				t.Errorf("ConfigMapSourceChanged() = %v, want %v", got, c.expected)
 			}
 		})

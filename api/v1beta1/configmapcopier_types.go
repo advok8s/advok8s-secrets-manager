@@ -39,6 +39,15 @@ type TargetConfigMap struct {
 
 	// Labels to apply to the configmap.
 	Labels map[string]string `json:"labels,omitempty"`
+
+	// Annotations to apply to the configmap. Reconciled as a managed subset,
+	// like labels: annotations outside this set are never compared or touched.
+	// Keys under the operator-owned secrets.advok8s.io/ prefix are rejected
+	// (the tracking annotations live there).
+	// +kubebuilder:validation:MaxProperties=32
+	// +kubebuilder:validation:XValidation:rule="self.all(k, !k.startsWith('secrets.advok8s.io/'))",message="annotation keys under the operator-owned secrets.advok8s.io/ prefix are not allowed"
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // ConfigMapCopierRule is a rule for copying a configmap. Unlike SecretCopier
@@ -62,6 +71,7 @@ type ConfigMapCopierRule struct {
 // ConfigMapCopierSpec defines the desired state of ConfigMapCopier.
 type ConfigMapCopierSpec struct {
 	// A list of rules for copying configmaps.
+	// +kubebuilder:validation:MaxItems=100
 	Rules []ConfigMapCopierRule `json:"rules,omitempty"`
 }
 

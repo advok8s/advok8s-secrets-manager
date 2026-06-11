@@ -502,14 +502,15 @@ func (r *SecretCopierReconciler) copySecretToNamespace(ctx context.Context, secr
 	engine := copyengine.Engine{Client: r.Client}
 
 	return engine.CopySecret(ctx, copyengine.Request{
-		Source:          secret,
-		SourceNamespace: sourceSecret.Namespace,
-		SourceName:      sourceSecret.Name,
-		TargetNamespace: targetNamespace,
-		TargetName:      targetSecretName,
-		TargetLabels:    rule.TargetSecret.Labels,
-		ManagedByValue:  "secretcopier/" + secretCopier.Name,
-		OwnerReferences: ownerReferences,
-		Authorize:       func(context.Context) bool { return authorized },
+		Source:            secret,
+		SourceNamespace:   sourceSecret.Namespace,
+		SourceName:        sourceSecret.Name,
+		TargetNamespace:   targetNamespace,
+		TargetName:        targetSecretName,
+		TargetLabels:      rule.TargetSecret.Labels,
+		TargetAnnotations: rule.TargetSecret.Annotations,
+		ManagedByValue:    "secretcopier/" + secretCopier.Name,
+		OwnerReferences:   ownerReferences,
+		Authorize:         func(context.Context) bool { return authorized },
 	})
 }

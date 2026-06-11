@@ -43,6 +43,7 @@ type SecretExporterRule struct {
 // SecretExporterSpec defines the desired state of SecretExporter.
 type SecretExporterSpec struct {
 	// A list of rules for exporting this exporter's secret to other namespaces.
+	// +kubebuilder:validation:MaxItems=100
 	Rules []SecretExporterRule `json:"rules,omitempty"`
 }
 

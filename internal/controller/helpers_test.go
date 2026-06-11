@@ -117,13 +117,14 @@ func createOpaqueSecret(namespace, name string, stringData, labels map[string]st
 // ruleOptions configures copyRule. An empty Reclaim defaults to Delete; leave
 // MatchNames or MatchLabels unset to omit that selector.
 type ruleOptions struct {
-	SourceNamespace string
-	SourceName      string
-	TargetName      string
-	TargetLabels    map[string]string
-	Reclaim         secretsv1beta1.ReclaimPolicy
-	MatchNames      []string
-	MatchLabels     map[string]string
+	SourceNamespace   string
+	SourceName        string
+	TargetName        string
+	TargetLabels      map[string]string
+	TargetAnnotations map[string]string
+	Reclaim           secretsv1beta1.ReclaimPolicy
+	MatchNames        []string
+	MatchLabels       map[string]string
 }
 
 // copyRule builds a SecretCopierRule from options. The matchNames, matchUids
@@ -152,8 +153,9 @@ func copyRule(o ruleOptions) secretsv1beta1.SecretCopierRule {
 			LabelSelector: selectors.LabelSelector{MatchLabels: o.MatchLabels},
 		},
 		TargetSecret: secretsv1beta1.TargetSecret{
-			Name:   o.TargetName,
-			Labels: o.TargetLabels,
+			Name:        o.TargetName,
+			Labels:      o.TargetLabels,
+			Annotations: o.TargetAnnotations,
 		},
 		ReclaimPolicy: reclaim,
 	}

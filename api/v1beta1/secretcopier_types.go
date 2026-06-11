@@ -40,6 +40,15 @@ type TargetSecret struct {
 
 	// Labels to apply to the secret.
 	Labels map[string]string `json:"labels,omitempty"`
+
+	// Annotations to apply to the secret. Reconciled as a managed subset, like
+	// labels: annotations outside this set are never compared or touched. Keys
+	// under the operator-owned secrets.advok8s.io/ prefix are rejected (the
+	// tracking annotations live there).
+	// +kubebuilder:validation:MaxProperties=32
+	// +kubebuilder:validation:XValidation:rule="self.all(k, !k.startsWith('secrets.advok8s.io/'))",message="annotation keys under the operator-owned secrets.advok8s.io/ prefix are not allowed"
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // CopyAuthorization gates copying a secret into a target namespace on a
@@ -91,6 +100,7 @@ type SecretCopierSpec struct {
 	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
 
 	// A list of rules for copying secrets.
+	// +kubebuilder:validation:MaxItems=100
 	Rules []SecretCopierRule `json:"rules,omitempty"`
 }
 

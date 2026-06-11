@@ -353,13 +353,14 @@ func (r *ConfigMapCopierReconciler) copyConfigMapToNamespace(ctx context.Context
 	engine := copyengine.Engine{Client: r.Client}
 
 	return engine.CopyConfigMap(ctx, copyengine.ConfigMapRequest{
-		Source:          configMap,
-		SourceNamespace: sourceConfigMap.Namespace,
-		SourceName:      sourceConfigMap.Name,
-		TargetNamespace: targetNamespace,
-		TargetName:      targetName,
-		TargetLabels:    rule.TargetConfigMap.Labels,
-		ManagedByValue:  "configmapcopier/" + copier.Name,
-		OwnerReferences: ownerReferences,
+		Source:            configMap,
+		SourceNamespace:   sourceConfigMap.Namespace,
+		SourceName:        sourceConfigMap.Name,
+		TargetNamespace:   targetNamespace,
+		TargetName:        targetName,
+		TargetLabels:      rule.TargetConfigMap.Labels,
+		TargetAnnotations: rule.TargetConfigMap.Annotations,
+		ManagedByValue:    "configmapcopier/" + copier.Name,
+		OwnerReferences:   ownerReferences,
 	})
 }
