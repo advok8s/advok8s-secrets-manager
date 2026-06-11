@@ -28,14 +28,17 @@ package controller
 //   secretcopier_targetsecret_test.go    - target rename, labels, annotations
 //   secretcopier_selectors_test.go       - selecting target namespaces
 //   secretcopier_multirule_test.go       - multiple rules / namespaces
-//   secretcopier_syncperiod_test.go      - requeue-after behaviour
+//   secretcopier_eventdriven_test.go     - event-driven convergence (target
+//                                          repair, conflict clearance, importer
+//                                          arrival) and the backstop requeue
 //   secretcopier_status_test.go          - observed state written to .status
 //                                          (observedGeneration, conditions,
 //                                          summary / per-rule counts)
 //
 // The pure-function copy decisions (whether a target has drifted, whether a
 // target is managed by a rule) live with the shared copy engine and are unit
-// tested there: internal/copyengine/engine_test.go.
+// tested there: internal/copyengine/engine_secret_test.go and
+// engine_configmap_test.go.
 //
 // New behaviour areas should each get their own secretcopier_<behaviour>_test.go
 // file and reuse the builders below.

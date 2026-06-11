@@ -125,6 +125,55 @@ var _ = Describe("SecretInjector injecting secret references", func() {
 		})
 	})
 
+	// Convergence is event-driven with a fixed internal backstop. These specs
+	// pin the event coverage: well inside the backstop interval, repair and
+	// late-arriving sources must converge from the watch event alone.
+	Context("when an injected reference is removed from the service account", func() {
+		It("re-adds it in response to the event", func() {
+			createNamespace("inj-6")
+			createOpaqueSecret("inj-6", "sticky", map[string]string{"k": "v"}, nil)
+			createServiceAccount("inj-6", "builder", nil)
+
+			createSecretInjector("inj-copier-6",
+				injectorRule([]string{"sticky"}, []string{"builder"}, []string{"inj-6"}))
+
+			eventuallyServiceAccountHas("inj-6", "builder", saHasSecret("sticky"))
+
+			sa := &corev1.ServiceAccount{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: "inj-6", Name: "builder"}, sa)).To(Succeed())
+			var kept []corev1.ObjectReference
+			for _, ref := range sa.Secrets {
+				if ref.Name != "sticky" {
+					kept = append(kept, ref)
+				}
+			}
+			sa.Secrets = kept
+			Expect(k8sClient.Update(ctx, sa)).To(Succeed())
+
+			eventuallyServiceAccountHas("inj-6", "builder", saHasSecret("sticky"))
+		})
+	})
+
+	Context("when a matching secret is created after the injector", func() {
+		It("injects it in response to the event", func() {
+			createNamespace("inj-7")
+			createServiceAccount("inj-7", "builder", nil)
+
+			createSecretInjector("inj-copier-7",
+				injectorRule([]string{"late"}, []string{"builder"}, []string{"inj-7"}))
+
+			Consistently(func(g Gomega) {
+				sa := &corev1.ServiceAccount{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: "inj-7", Name: "builder"}, sa)).To(Succeed())
+				g.Expect(sa.Secrets).To(BeEmpty())
+			}, 2*time.Second, 250*time.Millisecond).Should(Succeed())
+
+			createOpaqueSecret("inj-7", "late", map[string]string{"k": "v"}, nil)
+
+			eventuallyServiceAccountHas("inj-7", "builder", saHasSecret("late"))
+		})
+	})
+
 	Context("when the secret does not match the source selector", func() {
 		It("does not inject anything", func() {
 			createNamespace("inj-5")

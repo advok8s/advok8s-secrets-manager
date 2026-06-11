@@ -35,15 +35,16 @@ operators are ever run against the same cluster, or during a migration.
 
 ## Copy semantics (SecretCopier, SecretExporter, ConfigMapCopier)
 
-### Changed: event-driven convergence, no `spec.syncPeriod`
+### Changed: event-driven convergence
 
 The Educates implementation re-reconciles on a fixed internal 60-second timer.
 This implementation is event-driven: watches cover source changes, namespace
 lifecycle, importer changes, and target deletion / tampering / conflict
 clearance, so copies converge in response to the change rather than on a clock.
-A fixed internal 5-minute per-instance backstop requeue bounds the staleness
-caused by any missed event. There is no user-facing `syncPeriod` field on the
-copy-side resources.
+The timer's remaining role — insurance against a missed event — is played by a
+fixed internal 5-minute per-instance backstop requeue. The same model applies
+to SecretInjector (see below). Neither timer is user-configurable, as in the
+original.
 
 ### Changed: managed-subset label reconciliation
 
@@ -117,16 +118,22 @@ service accounts within matching namespaces — image pull secrets
 name matching is exact set membership (no globs), as in the Python operator;
 source-secret matching is a superset (see below).
 
-### Added: `spec.syncPeriod` and populated `status`
+### Changed: event-driven convergence
 
-A configurable `syncPeriod` (default `1m`, `"0s"` to disable) — the injector is
-the one resource that retains this field; the copy-side resources are
-event-driven (see above) — and a populated `status` (`observedGeneration`,
-`Ready`/`Degraded` conditions, and summary / per-rule counts: target
-namespaces, service accounts matched, injections in sync, failures).
-`injectionsInSync` counts references that are present, not a
-reconciled-to-exact total, because injections are never removed. The Educates
-implementation leaves status unmanaged.
+As for the copy-side resources (see the copy semantics section above), the
+Educates implementation's fixed internal 60-second re-reconcile timer is
+replaced by event-driven convergence: watches cover matching secrets, service
+accounts (hand-removing an injected reference triggers immediate
+re-injection), and namespace lifecycle, with the same fixed internal 5-minute
+backstop requeue.
+
+### Added: populated `status`
+
+A populated `status` (`observedGeneration`, `Ready`/`Degraded` conditions, and
+summary / per-rule counts: target namespaces, service accounts matched,
+injections in sync, failures). `injectionsInSync` counts references that are
+present, not a reconciled-to-exact total, because injections are never
+removed. The Educates implementation leaves status unmanaged.
 
 ### Superset: richer `sourceSecrets` and `targetNamespaces` selectors
 

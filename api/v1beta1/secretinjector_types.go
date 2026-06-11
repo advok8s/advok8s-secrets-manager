@@ -47,12 +47,6 @@ type SecretInjectorRule struct {
 type SecretInjectorSpec struct {
 	// A list of rules for injecting secret references into service accounts.
 	Rules []SecretInjectorRule `json:"rules,omitempty"`
-
-	// The interval at which to re-synchronise injections. Leave unset to use the
-	// default; set to "0s" to disable the periodic re-sync (injections are still
-	// applied in response to secret, service account and namespace changes).
-	// +kubebuilder:default="1m"
-	SyncPeriod *metav1.Duration `json:"syncPeriod,omitempty"`
 }
 
 // SecretInjectorCounts holds injection outcome counts, used for both the

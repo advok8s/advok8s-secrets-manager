@@ -138,11 +138,10 @@ func (r *SecretInjectorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	recordDegradedTransition(r.Recorder, &injector, "Inject", prevDegraded, status.Conditions)
 
-	if injector.Spec.SyncPeriod != nil && injector.Spec.SyncPeriod.Duration > 0 {
-		return ctrl.Result{RequeueAfter: injector.Spec.SyncPeriod.Duration}, nil
-	}
-
-	return ctrl.Result{}, nil
+	// Convergence is event-driven (secret, service account and namespace
+	// watches); the fixed backstop bounds staleness from any missed event and
+	// retries any failures counted above.
+	return ctrl.Result{RequeueAfter: backstopRequeue}, nil
 }
 
 // reconcileNamespace applies one rule within one namespace: it injects every
