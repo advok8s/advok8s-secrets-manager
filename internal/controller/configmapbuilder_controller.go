@@ -204,8 +204,8 @@ func (r *ConfigMapBuilderReconciler) generateWriteAndFinish(ctx context.Context,
 	if err := sb.WriteConfigMap(ctx, r.Client, r.Scheme, builder, sb.ConfigMapWriteRequest{
 		Name:        builder.Name,
 		Namespace:   builder.Namespace,
-		Labels:      mergeLabels(builder.Spec.Output.Labels, result.Labels),
-		Annotations: builder.Spec.Output.Annotations,
+		Labels:      mergeStringMaps(builder.Spec.Output.Labels, result.Labels),
+		Annotations: mergeStringMaps(builder.Spec.Output.Annotations, result.Annotations),
 		Data:        data,
 		BinaryData:  result.BinaryData,
 		Revision:    revision,
@@ -349,7 +349,7 @@ func (r *ConfigMapBuilderReconciler) engineFor(builder *secretsv1beta1.ConfigMap
 	case g.Script != nil:
 		return &sb.StarlarkEngine{Script: *g.Script, Kind: sb.OutputConfigMap}, nil
 	case g.Template != nil:
-		return &sb.TemplateEngine{Data: g.Template.Data, Labels: g.Template.Labels, Kind: sb.OutputConfigMap}, nil
+		return &sb.TemplateEngine{Data: g.Template.Data, Labels: g.Template.Labels, Annotations: g.Template.Annotations, Kind: sb.OutputConfigMap}, nil
 	default:
 		return nil, fmt.Errorf("generator sets neither script nor template")
 	}

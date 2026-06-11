@@ -466,19 +466,23 @@ A ``script`` assigns a single ``secret`` global:
 secret = {
   "data":   { "key": "value" },   # required: str -> str (or bytes); operator base64-encodes
   "labels": { ... },               # optional: merged over output.labels
+  "annotations": { ... },          # optional: merged over output.annotations
   "type":   "Opaque",              # optional: overrides output.type
 }
 ```
 
 (A single ``secret`` dict rather than separate globals, because a global ``type``
-would shadow Starlark's ``type()`` builtin.)
+would shadow Starlark's ``type()`` builtin.) Any other key in the ``secret`` dict
+is an error, so a typo is caught rather than silently dropped. Annotation keys
+under the operator-owned ``secrets.advok8s.io/`` prefix are rejected.
 
-A ``template`` is a per-key map of ``data`` templates, with optional ``type`` and
-``labels`` — the gotemplate analogue of the Starlark ``secret`` global. Each data
-value renders as plaintext and is base64-encoded by the operator. ``type`` and
-each ``labels`` value are themselves gotemplates (so a literal works and a
-computed value is possible); as in a script, ``type`` overrides ``spec.output.type``
-and ``labels`` merge over ``spec.output.labels``:
+A ``template`` is a per-key map of ``data`` templates, with optional ``type``,
+``labels`` and ``annotations`` — the gotemplate analogue of the Starlark
+``secret`` global. Each data value renders as plaintext and is base64-encoded by
+the operator. ``type`` and each ``labels`` / ``annotations`` value are themselves
+gotemplates (so a literal works and a computed value is possible); as in a
+script, ``type`` overrides ``spec.output.type`` and ``labels`` / ``annotations``
+merge over their ``spec.output`` counterparts:
 
 ```yaml
 spec:
@@ -487,6 +491,8 @@ spec:
       type: Opaque                                 # optional; a gotemplate
       labels:
         app: '{{ .constants.appName }}'            # optional; gotemplate values
+      annotations:
+        example.com/env: '{{ .constants.env }}'    # optional; gotemplate values
       data:
         message: '{{ .constants.greeting }} from {{ .constants.env }}'
         encoded: '{{ .constants.greeting | b64enc }}'
@@ -709,10 +715,15 @@ spec:
       app: demo
 ```
 
-A ``script`` may also set ``type`` and ``labels`` in its ``secret`` global, which
-override / merge over ``spec.output``. The output Secret is owned by the
-SecretBuilder (an ownerReference), so deleting the SecretBuilder garbage-collects
-the Secret — no finalizers.
+A ``script`` may also set ``type``, ``labels`` and ``annotations`` in its
+``secret`` global (a ``template`` likewise), which override / merge over
+``spec.output`` — the generator's value wins on a shared key. Two caveats on
+dynamic annotations: keys under the operator-owned ``secrets.advok8s.io/``
+prefix are rejected, and like labels, annotations are merged additively when
+the Secret is written — one emitted at an earlier generation and since dropped
+from the generator lingers on the output. The output Secret is owned by the
+SecretBuilder (an ownerReference), so deleting the SecretBuilder
+garbage-collects the Secret — no finalizers.
 
 Regeneration
 ------------

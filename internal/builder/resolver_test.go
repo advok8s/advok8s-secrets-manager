@@ -101,7 +101,7 @@ func TestResolveConstantsAndContext(t *testing.T) {
 			Constants: &runtime.RawExtension{Raw: []byte(`{"realm":"Demo","replicas":3,"tls":true}`)},
 		},
 	})
-	sb.Labels = map[string]string{"team": "platform"}
+	sb.Labels = map[string]string{"team": teamName}
 
 	in, pending := resolve(t, r, sb)
 	if len(pending) != 0 {
@@ -122,7 +122,7 @@ func TestResolveConstantsAndContext(t *testing.T) {
 	if !in.Context.GeneratedAt.Equal(fixedTime) {
 		t.Errorf("generatedAt = %v", in.Context.GeneratedAt)
 	}
-	if in.Context.Labels["team"] != "platform" {
+	if in.Context.Labels["team"] != teamName {
 		t.Errorf("labels = %v", in.Context.Labels)
 	}
 }

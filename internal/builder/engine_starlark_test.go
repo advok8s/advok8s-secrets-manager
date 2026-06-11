@@ -23,6 +23,10 @@ import (
 	"time"
 )
 
+// teamName is the SecretBuilder's team label value in sampleInputs, asserted
+// wherever a test threads it through an engine.
+const teamName = "platform"
+
 // sampleInputs builds a resolved bundle covering constants, context, a single
 // secret and a generated value, for the engine tests.
 func sampleInputs() *ResolvedInputs {
@@ -31,7 +35,7 @@ func sampleInputs() *ResolvedInputs {
 		Context: Context{
 			Namespace:   "app",
 			Name:        "my-secret",
-			Labels:      map[string]string{"team": "platform"},
+			Labels:      map[string]string{"team": teamName},
 			GeneratedAt: fixedTime,
 		},
 		Secrets: map[string]*SecretBinding{

@@ -18,6 +18,8 @@ package builder
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	starlarkjson "go.starlark.net/lib/json"
@@ -45,8 +47,9 @@ const (
 // StarlarkEngine renders a Starlark script. The script reads the predeclared
 // `input` and recipe modules, may load() declared libraries, and must set the
 // output global for its kind: for a Secret a
-// `secret = {"data": {...}, "labels": {...}, "type": "..."}` global; for a
-// ConfigMap a `configMap = {"data": {...}, "binaryData": {...}, "labels": {...}}`
+// `secret = {"data": {...}, "labels": {...}, "annotations": {...}, "type": "..."}`
+// global; for a ConfigMap a
+// `configMap = {"data": {...}, "binaryData": {...}, "labels": {...}, "annotations": {...}}`
 // global, where placement decides the destination map, both dicts accept str or
 // bytes values (raw - the author never base64-encodes anything), data values
 // must be valid UTF-8, and a key may not appear in both dicts. It is sandboxed:
@@ -190,6 +193,41 @@ func builtinRetry(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, 
 	return nil, &RetryError{Message: msg, After: dur}
 }
 
+// parseStringMap reads an optional string->string sub-dict (labels or
+// annotations) of the script's output dict. kind/field name the dict for error
+// messages, e.g. secret.labels.
+func parseStringMap(m map[string]any, kind, field string) (map[string]string, error) {
+	raw, ok := m[field]
+	if !ok || raw == nil {
+		return map[string]string{}, nil
+	}
+	rawMap, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("'%s.%s' must be a dict", kind, field)
+	}
+	out := make(map[string]string, len(rawMap))
+	for k, v := range rawMap {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("%s.%s[%q] must be a string", kind, field, k)
+		}
+		out[k] = s
+	}
+	return out, nil
+}
+
+// rejectUnknownOutputKeys errors on any key of the script's output dict outside
+// the contract, so a typo ("lables") or an unsupported field ("immutable") is a
+// pointed error rather than silently dropped output.
+func rejectUnknownOutputKeys(m map[string]any, kind string, known ...string) error {
+	for _, key := range sortedKeys(m) {
+		if !slices.Contains(known, key) {
+			return fmt.Errorf("'%s' has unknown field %q (must be one of: %s)", kind, key, strings.Join(known, ", "))
+		}
+	}
+	return nil
+}
+
 func parseSecretOutput(value starlark.Value, maxBytes int) (*Result, error) {
 	out, err := fromStarlark(value)
 	if err != nil {
@@ -198,6 +236,9 @@ func parseSecretOutput(value starlark.Value, maxBytes int) (*Result, error) {
 	m, ok := out.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("'secret' must be a dict, got %T", out)
+	}
+	if err := rejectUnknownOutputKeys(m, "secret", "data", "labels", "annotations", "type"); err != nil {
+		return nil, err
 	}
 
 	result := &Result{Data: map[string][]byte{}, Labels: map[string]string{}}
@@ -223,18 +264,14 @@ func parseSecretOutput(value starlark.Value, maxBytes int) (*Result, error) {
 		result.Data[k] = b
 	}
 
-	if labelsRaw, ok := m["labels"]; ok && labelsRaw != nil {
-		labelsMap, ok := labelsRaw.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("'secret.labels' must be a dict")
-		}
-		for k, v := range labelsMap {
-			s, ok := v.(string)
-			if !ok {
-				return nil, fmt.Errorf("secret.labels[%q] must be a string", k)
-			}
-			result.Labels[k] = s
-		}
+	if result.Labels, err = parseStringMap(m, "secret", "labels"); err != nil {
+		return nil, err
+	}
+	if result.Annotations, err = parseStringMap(m, "secret", "annotations"); err != nil {
+		return nil, err
+	}
+	if err := validateAnnotations(result.Annotations, "secret"); err != nil {
+		return nil, err
 	}
 
 	if typeRaw, ok := m["type"]; ok && typeRaw != nil {
@@ -250,7 +287,8 @@ func parseSecretOutput(value starlark.Value, maxBytes int) (*Result, error) {
 
 // parseConfigMapOutput reads the script's configMap global: separate data and
 // binaryData dicts (placement decides the destination; both accept str or
-// bytes values raw), plus optional labels. At least one of data/binaryData must
+// bytes values raw), plus optional labels and annotations. At least one of
+// data/binaryData must
 // be present. The shared validateConfigMapResult enforces UTF-8 in data and
 // rejects keys present in both dicts; the size cap counts both maps together.
 func parseConfigMapOutput(value starlark.Value, maxBytes int) (*Result, error) {
@@ -261,6 +299,9 @@ func parseConfigMapOutput(value starlark.Value, maxBytes int) (*Result, error) {
 	m, ok := out.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("'configMap' must be a dict, got %T", out)
+	}
+	if err := rejectUnknownOutputKeys(m, "configMap", "data", "binaryData", "labels", "annotations"); err != nil {
+		return nil, err
 	}
 
 	result := &Result{Data: map[string][]byte{}, BinaryData: map[string][]byte{}, Labels: map[string]string{}}
@@ -305,18 +346,14 @@ func parseConfigMapOutput(value starlark.Value, maxBytes int) (*Result, error) {
 		}
 	}
 
-	if labelsRaw, ok := m["labels"]; ok && labelsRaw != nil {
-		labelsMap, ok := labelsRaw.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("'configMap.labels' must be a dict")
-		}
-		for k, v := range labelsMap {
-			s, ok := v.(string)
-			if !ok {
-				return nil, fmt.Errorf("configMap.labels[%q] must be a string", k)
-			}
-			result.Labels[k] = s
-		}
+	if result.Labels, err = parseStringMap(m, "configMap", "labels"); err != nil {
+		return nil, err
+	}
+	if result.Annotations, err = parseStringMap(m, "configMap", "annotations"); err != nil {
+		return nil, err
+	}
+	if err := validateAnnotations(result.Annotations, "configMap"); err != nil {
+		return nil, err
 	}
 
 	if err := validateConfigMapResult(result); err != nil {

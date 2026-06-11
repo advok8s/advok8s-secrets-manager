@@ -42,6 +42,7 @@ type TemplateEngine struct {
 	Data           map[string]string // output key -> template source
 	Type           string            // optional gotemplate for the Secret type (Secret kind only)
 	Labels         map[string]string // optional label-value gotemplates
+	Annotations    map[string]string // optional annotation-value gotemplates
 	Kind           OutputKind        // output contract (default OutputSecret)
 	MaxOutputBytes int
 }
@@ -49,10 +50,11 @@ type TemplateEngine struct {
 // NewTemplateEngine returns an engine for the given per-key template map.
 func NewTemplateEngine(data map[string]string) *TemplateEngine { return &TemplateEngine{Data: data} }
 
-// Render executes each data-key template, plus the optional type and label
-// templates. type overrides spec.output.type and labels merge over
-// spec.output.labels (the controller applies that merge), mirroring the Starlark
-// secret = {data, type, labels} contract.
+// Render executes each data-key template, plus the optional type, label and
+// annotation templates. type overrides spec.output.type; labels and annotations
+// merge over spec.output.labels / spec.output.annotations (the controller
+// applies that merge), mirroring the Starlark
+// secret = {data, type, labels, annotations} contract.
 func (e *TemplateEngine) Render(in *ResolvedInputs) (*Result, error) {
 	ctx := buildTemplateContext(in)
 	funcs := templateFuncMap(in)
@@ -103,6 +105,20 @@ func (e *TemplateEngine) Render(in *ResolvedInputs) (*Result, error) {
 			return nil, err
 		}
 		result.Labels[key] = v
+	}
+
+	if len(e.Annotations) > 0 {
+		result.Annotations = map[string]string{}
+		for _, key := range sortedKeys(e.Annotations) {
+			v, err := render("annotations."+key, e.Annotations[key])
+			if err != nil {
+				return nil, err
+			}
+			result.Annotations[key] = v
+		}
+		if err := validateAnnotations(result.Annotations, "template"); err != nil {
+			return nil, err
+		}
 	}
 
 	if e.Kind == OutputConfigMap {

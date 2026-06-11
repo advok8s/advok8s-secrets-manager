@@ -441,6 +441,8 @@ type SecretBuilderOutput struct {
 	// labels are merged with any the generator returns.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
+	// annotations are merged with any the generator returns (the generator's win
+	// on a shared key).
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
@@ -449,7 +451,7 @@ type SecretBuilderOutput struct {
 // is gotemplate (a per-key template map).
 // +kubebuilder:validation:XValidation:rule="has(self.script) != has(self.template)",message="set exactly one of 'script' or 'template'"
 type SecretBuilderGenerator struct {
-	// script is a Starlark program returning the secret = {data, labels, type} global.
+	// script is a Starlark program returning the secret = {data, labels, annotations, type} global.
 	// +optional
 	Script *string `json:"script,omitempty"`
 	// template is a gotemplate engine: a per-key map of templates producing data values.
@@ -458,9 +460,10 @@ type SecretBuilderGenerator struct {
 }
 
 // TemplateGenerator holds a per-key map of gotemplate templates, with optional
-// type and labels (the gotemplate analogue of the Starlark secret = {data, type,
-// labels} global). type and each label value are themselves gotemplates, so a
-// plain literal works and a computed value is possible.
+// type, labels and annotations (the gotemplate analogue of the Starlark
+// secret = {data, type, labels, annotations} global). type and each label and
+// annotation value are themselves gotemplates, so a plain literal works and a
+// computed value is possible.
 type TemplateGenerator struct {
 	// data maps each output Secret data key to a gotemplate producing its value.
 	// +required
@@ -474,6 +477,12 @@ type TemplateGenerator struct {
 	// value is rendered as a gotemplate.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
+
+	// annotations are merged onto the output Secret (over
+	// spec.output.annotations). Each value is rendered as a gotemplate. Keys
+	// under the operator-owned secrets.advok8s.io/ prefix are rejected.
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // Regeneration controls if and when the Secret is rebuilt. The zero value means

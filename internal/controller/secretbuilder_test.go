@@ -116,6 +116,39 @@ secret = {"data": {"derived": db + "-x"}, "labels": {"app": "demo"}, "type": "Op
 		}, timeout, interval).Should(Succeed())
 	})
 
+	It("merges script annotations over output annotations, keeping the revision stamp", func() {
+		createNamespace("sb-annotations")
+		b := newScriptBuilder("sb-annotations", "annotated", `
+secret = {"data": {"k": "v"}, "annotations": {"example.com/expiry": "2030-01-01", "shared": "dynamic"}}
+`)
+		b.Spec.Output.Annotations = map[string]string{"shared": "static", "static-only": "x"}
+		Expect(k8sClient.Create(ctx, b)).To(Succeed())
+
+		Eventually(func(g Gomega) {
+			out, err := getOutput("sb-annotations", "annotated")
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(out.Annotations["example.com/expiry"]).To(Equal("2030-01-01"))
+			g.Expect(out.Annotations["shared"]).To(Equal("dynamic"), "dynamic annotations win over spec.output.annotations")
+			g.Expect(out.Annotations["static-only"]).To(Equal("x"))
+			g.Expect(out.Annotations).To(HaveKey(builderpkg.RevisionAnnotation))
+		}, timeout, interval).Should(Succeed())
+	})
+
+	It("rejects script annotations under the operator-owned prefix", func() {
+		createNamespace("sb-ann-reserved")
+		b := newScriptBuilder("sb-ann-reserved", "reserved", `
+secret = {"data": {"k": "v"}, "annotations": {"secrets.advok8s.io/revision": "tamper"}}
+`)
+		Expect(k8sClient.Create(ctx, b)).To(Succeed())
+
+		Eventually(func() string {
+			return readyReason("sb-ann-reserved", "reserved")
+		}, timeout, interval).Should(Equal("False/GeneratorError"))
+
+		_, err := getOutput("sb-ann-reserved", "reserved")
+		Expect(apierrors.IsNotFound(err)).To(BeTrue())
+	})
+
 	It("holds in AwaitingInput when a referenced Secret is absent", func() {
 		createNamespace("sb-awaiting")
 		b := newScriptBuilder("sb-awaiting", "needs-input", `secret = {"data": {"x": input.secrets.db.data["k"]}}`)

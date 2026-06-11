@@ -145,6 +145,34 @@ configMap = {
 		}, timeout, interval).Should(Succeed())
 	})
 
+	It("merges template annotations over output annotations", func() {
+		createNamespace("cmb-annotations")
+		b := &secretsv1beta1.ConfigMapBuilder{
+			ObjectMeta: metav1.ObjectMeta{Name: "annotated", Namespace: "cmb-annotations"},
+			Spec: secretsv1beta1.ConfigMapBuilderSpec{
+				Output: secretsv1beta1.ConfigMapBuilderOutput{
+					Annotations: map[string]string{"shared": "static", "static-only": "x"},
+				},
+				Generator: secretsv1beta1.ConfigMapBuilderGenerator{
+					Template: &secretsv1beta1.ConfigMapTemplateGenerator{
+						Data:        map[string]string{"k": "v"},
+						Annotations: map[string]string{"example.com/ns": `{{ .context.namespace }}`, "shared": "dynamic"},
+					},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, b)).To(Succeed())
+
+		Eventually(func(g Gomega) {
+			out, err := getOutput("cmb-annotations", "annotated")
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(out.Annotations["example.com/ns"]).To(Equal("cmb-annotations"))
+			g.Expect(out.Annotations["shared"]).To(Equal("dynamic"), "dynamic annotations win over spec.output.annotations")
+			g.Expect(out.Annotations["static-only"]).To(Equal("x"))
+			g.Expect(out.Annotations).To(HaveKey(builderpkg.RevisionAnnotation))
+		}, timeout, interval).Should(Succeed())
+	})
+
 	It("reports GeneratorError when data is not valid UTF-8", func() {
 		createNamespace("cmb-utf8")
 		b := newScriptBuilder("cmb-utf8", "broken", `configMap = {"data": {"blob": hex.decode("ff0001")}}`)

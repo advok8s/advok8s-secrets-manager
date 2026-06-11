@@ -161,7 +161,7 @@ func TestTemplateTypeAndLabels(t *testing.T) {
 	if result.Type != "kubernetes.io/hello" {
 		t.Errorf("type = %q, want %q", result.Type, "kubernetes.io/hello")
 	}
-	if result.Labels["team"] != "platform" || result.Labels["static"] != "x" {
+	if result.Labels["team"] != teamName || result.Labels["static"] != "x" {
 		t.Errorf("labels = %v", result.Labels)
 	}
 }

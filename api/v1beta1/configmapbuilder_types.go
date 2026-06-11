@@ -123,6 +123,8 @@ type ConfigMapBuilderOutput struct {
 	// labels are merged with any the generator returns.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
+	// annotations are merged with any the generator returns (the generator's win
+	// on a shared key).
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
@@ -132,7 +134,7 @@ type ConfigMapBuilderOutput struct {
 // +kubebuilder:validation:XValidation:rule="has(self.script) != has(self.template)",message="set exactly one of 'script' or 'template'"
 type ConfigMapBuilderGenerator struct {
 	// script is a Starlark program returning the
-	// configMap = {data, binaryData, labels} global. Placement decides the
+	// configMap = {data, binaryData, labels, annotations} global. Placement decides the
 	// destination map; values are raw str or bytes (never base64-encode -
 	// the machinery handles encoding); data values must be valid UTF-8; a key
 	// may not appear in both dicts.
@@ -146,9 +148,10 @@ type ConfigMapBuilderGenerator struct {
 }
 
 // ConfigMapTemplateGenerator holds a per-key map of gotemplate templates, with
-// optional labels (the gotemplate analogue of the Starlark configMap = {data,
-// labels} global). Each label value is itself a gotemplate, so a plain literal
-// works and a computed value is possible.
+// optional labels and annotations (the gotemplate analogue of the Starlark
+// configMap = {data, labels, annotations} global). Each label and annotation
+// value is itself a gotemplate, so a plain literal works and a computed value
+// is possible.
 type ConfigMapTemplateGenerator struct {
 	// data maps each output ConfigMap data key to a gotemplate producing its
 	// value. Rendered values must be valid UTF-8.
@@ -159,6 +162,12 @@ type ConfigMapTemplateGenerator struct {
 	// Each value is rendered as a gotemplate.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
+
+	// annotations are merged onto the output ConfigMap (over
+	// spec.output.annotations). Each value is rendered as a gotemplate. Keys
+	// under the operator-owned secrets.advok8s.io/ prefix are rejected.
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // ConfigMapBuilderStatus is the observed state of a ConfigMapBuilder.

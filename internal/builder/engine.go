@@ -19,6 +19,7 @@ package builder
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
@@ -62,13 +63,34 @@ func classifyEngineError(err error) error {
 
 // Result is what a generator engine produces: the output's data (decoded - the
 // engine works in raw values, serialization base64-encodes on the wire), plus
-// any labels and, per output kind, the Secret type (Secret only) or binaryData
-// (ConfigMap only - raw bytes, never base64-encoded by the author).
+// any labels and annotations and, per output kind, the Secret type (Secret
+// only) or binaryData (ConfigMap only - raw bytes, never base64-encoded by the
+// author).
 type Result struct {
-	Data       map[string][]byte
-	BinaryData map[string][]byte
-	Labels     map[string]string
-	Type       string
+	Data        map[string][]byte
+	BinaryData  map[string][]byte
+	Labels      map[string]string
+	Annotations map[string]string
+	Type        string
+}
+
+// reservedAnnotationPrefix marks the annotation namespace the operator owns on
+// its output objects (the revision stamp lives there). Generator output may not
+// set keys under it - rejected with an error rather than silently overwritten,
+// so an author who tries learns immediately why it did not stick.
+const reservedAnnotationPrefix = "secrets.advok8s.io/"
+
+// validateAnnotations rejects generator-produced annotation keys in the
+// operator-owned namespace. Shared by both engines so the error is identical
+// whichever generator produced the output; kind is the output dict/field name
+// for the message ("secret" or "configMap").
+func validateAnnotations(annotations map[string]string, kind string) error {
+	for _, key := range sortedKeys(annotations) {
+		if strings.HasPrefix(key, reservedAnnotationPrefix) {
+			return fmt.Errorf("%s.annotations[%q]: the %q annotation prefix is reserved for the operator", kind, key, reservedAnnotationPrefix)
+		}
+	}
+	return nil
 }
 
 // validateConfigMapResult enforces the parts of the ConfigMap output contract

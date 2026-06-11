@@ -57,6 +57,7 @@ spec:
     # template:             # gotemplate (per-key template map)
     #   data: {...}
     #   labels: {...}
+    #   annotations: {...}
   regeneration:           # optional; default = generate once, never again
     onInputChange: true
     rotateEvery: 720h
@@ -83,6 +84,7 @@ configMap = {
         "logo.png": logo,                    # bytes
     },
     "labels": {"app": "demo"},
+    "annotations": {"example.com/source": "artwork"},
 }
 ```
 
@@ -103,14 +105,20 @@ The rules, enforced identically whichever engine produced the output:
   empty), and there is no ``type`` — ConfigMaps have none.
 - The combined size of both maps is capped at 1 MiB (the API server enforces
   the same limit).
+- ``labels`` and ``annotations`` are optional and merge over
+  ``spec.output.labels`` / ``spec.output.annotations`` (the generator's value
+  wins on a shared key). Annotation keys under the operator-owned
+  ``secrets.advok8s.io/`` prefix are rejected. Any other key in the
+  ``configMap`` dict is an error, so a typo is caught rather than silently
+  dropped.
 
 A script written for ``SecretBuilder`` that sets a ``secret`` global gets a
 pointed error telling it to set ``configMap`` instead.
 
 ### The template engine renders text only
 
-The ``template`` generator has ``data`` and ``labels`` — **no ``binaryData``
-field exists**. Templates are UTF-8 text living in a CRD string field, so raw
+The ``template`` generator has ``data``, ``labels`` and ``annotations`` —
+**no ``binaryData`` field exists**. Templates are UTF-8 text living in a CRD string field, so raw
 binary cannot even be authored in one; rather than invent a special encoding
 convention for templates that would differ from the script's "never encode"
 rule, binary output simply requires the script generator. Rendered ``data``
