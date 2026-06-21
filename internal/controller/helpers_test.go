@@ -299,7 +299,7 @@ func injectorRule(sourceSecretNames, serviceAccountNames, targetNamespaces []str
 		TargetNamespaces: nameTargetNamespaces(targetNamespaces...),
 	}
 	if len(sourceSecretNames) > 0 {
-		rule.SourceSecrets = selectors.SecretSelector{
+		rule.SourceSecrets = selectors.ResourceSelector{
 			NameSelector: &selectors.NameSelector{MatchNames: sourceSecretNames},
 		}
 	}

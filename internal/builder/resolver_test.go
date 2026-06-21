@@ -176,7 +176,7 @@ func TestResolveSecretSelectorSortedAndFiltered(t *testing.T) {
 		Inputs: secretsv1beta1.SecretBuilderInputs{
 			Secrets: []secretsv1beta1.SecretInput{{
 				Name:     "users",
-				Selector: &selectors.SecretSelector{NameSelector: &selectors.NameSelector{MatchNames: []string{"user-*", "!user-test"}}},
+				Selector: &selectors.ResourceSelector{NameSelector: &selectors.NameSelector{MatchNames: []string{"user-*", "!user-test"}}},
 			}},
 		},
 	})
@@ -201,7 +201,7 @@ func TestResolveSelectorEmpty(t *testing.T) {
 				Secrets: []secretsv1beta1.SecretInput{{
 					Name:       "users",
 					AllowEmpty: allowEmpty,
-					Selector:   &selectors.SecretSelector{NameSelector: &selectors.NameSelector{MatchNames: []string{"none-*"}}},
+					Selector:   &selectors.ResourceSelector{NameSelector: &selectors.NameSelector{MatchNames: []string{"none-*"}}},
 				}},
 			},
 		})

@@ -23,7 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// object builds an ObjectMeta the SecretSelector can match against. A
+// object builds an ObjectMeta the ResourceSelector can match against. A
 // *metav1.ObjectMeta satisfies metav1.Object, so no concrete kind is needed.
 func object() *metav1.ObjectMeta {
 	return &metav1.ObjectMeta{
@@ -39,22 +39,22 @@ func object() *metav1.ObjectMeta {
 func TestSecretSelectorIsEmpty(t *testing.T) {
 	tests := []struct {
 		name     string
-		selector SecretSelector
+		selector ResourceSelector
 		want     bool
 	}{
-		{name: "nothing set", selector: SecretSelector{}, want: true},
-		{name: "all set but empty", selector: SecretSelector{
+		{name: "nothing set", selector: ResourceSelector{}, want: true},
+		{name: "all set but empty", selector: ResourceSelector{
 			NameSelector:  &NameSelector{},
 			LabelSelector: &LabelSelector{},
 			OwnerSelector: &OwnerSelector{},
 			UIDSelector:   &UIDSelector{},
 		}, want: true},
-		{name: "name set", selector: SecretSelector{NameSelector: &NameSelector{MatchNames: []string{"x"}}}, want: false},
-		{name: "labels set", selector: SecretSelector{
+		{name: "name set", selector: ResourceSelector{NameSelector: &NameSelector{MatchNames: []string{"x"}}}, want: false},
+		{name: "labels set", selector: ResourceSelector{
 			LabelSelector: &LabelSelector{MatchLabels: map[string]string{"a": "b"}}}, want: false},
-		{name: "owner set", selector: SecretSelector{
+		{name: "owner set", selector: ResourceSelector{
 			OwnerSelector: &OwnerSelector{MatchOwners: []OwnerReference{{Name: "o"}}}}, want: false},
-		{name: "uid set", selector: SecretSelector{UIDSelector: &UIDSelector{MatchUids: []string{"u"}}}, want: false},
+		{name: "uid set", selector: ResourceSelector{UIDSelector: &UIDSelector{MatchUids: []string{"u"}}}, want: false},
 	}
 
 	for _, tt := range tests {
@@ -69,71 +69,71 @@ func TestSecretSelectorIsEmpty(t *testing.T) {
 func TestSecretSelectorMatches(t *testing.T) {
 	tests := []struct {
 		name     string
-		selector SecretSelector
+		selector ResourceSelector
 		want     bool
 	}{
 		{
 			name:     "empty selector matches everything",
-			selector: SecretSelector{},
+			selector: ResourceSelector{},
 			want:     true,
 		},
 		{
 			name:     "set-but-empty sub-selectors impose no constraint",
-			selector: SecretSelector{NameSelector: &NameSelector{}, LabelSelector: &LabelSelector{}},
+			selector: ResourceSelector{NameSelector: &NameSelector{}, LabelSelector: &LabelSelector{}},
 			want:     true,
 		},
 		{
 			name:     "name matches literally",
-			selector: SecretSelector{NameSelector: &NameSelector{MatchNames: []string{"registry-credentials"}}},
+			selector: ResourceSelector{NameSelector: &NameSelector{MatchNames: []string{"registry-credentials"}}},
 			want:     true,
 		},
 		{
 			name:     "name matches by glob",
-			selector: SecretSelector{NameSelector: &NameSelector{MatchNames: []string{"registry-*"}}},
+			selector: ResourceSelector{NameSelector: &NameSelector{MatchNames: []string{"registry-*"}}},
 			want:     true,
 		},
 		{
 			name:     "name does not match",
-			selector: SecretSelector{NameSelector: &NameSelector{MatchNames: []string{"other"}}},
+			selector: ResourceSelector{NameSelector: &NameSelector{MatchNames: []string{"other"}}},
 			want:     false,
 		},
 		{
 			name:     "labels match",
-			selector: SecretSelector{LabelSelector: &LabelSelector{MatchLabels: map[string]string{"app": "web"}}},
+			selector: ResourceSelector{LabelSelector: &LabelSelector{MatchLabels: map[string]string{"app": "web"}}},
 			want:     true,
 		},
 		{
 			name:     "labels do not match",
-			selector: SecretSelector{LabelSelector: &LabelSelector{MatchLabels: map[string]string{"app": "api"}}},
+			selector: ResourceSelector{LabelSelector: &LabelSelector{MatchLabels: map[string]string{"app": "api"}}},
 			want:     false,
 		},
 		{
 			name: "owner matches",
-			selector: SecretSelector{OwnerSelector: &OwnerSelector{MatchOwners: []OwnerReference{
+			selector: ResourceSelector{OwnerSelector: &OwnerSelector{MatchOwners: []OwnerReference{
 				{APIVersion: "v1", Kind: "ConfigMap", Name: "owner", UID: types.UID("owner-uid")},
 			}}},
 			want: true,
 		},
 		{
 			name: "owner does not match",
-			selector: SecretSelector{OwnerSelector: &OwnerSelector{MatchOwners: []OwnerReference{
+			selector: ResourceSelector{OwnerSelector: &OwnerSelector{MatchOwners: []OwnerReference{
 				{APIVersion: "v1", Kind: "ConfigMap", Name: "different", UID: types.UID("owner-uid")},
 			}}},
 			want: false,
 		},
 		{
 			name:     "uid matches",
-			selector: SecretSelector{UIDSelector: &UIDSelector{MatchUids: []string{"uid-123"}}},
+			selector: ResourceSelector{UIDSelector: &UIDSelector{MatchUids: []string{"uid-123"}}},
 			want:     true,
 		},
 		{
 			name:     "uid does not match",
-			selector: SecretSelector{UIDSelector: &UIDSelector{MatchUids: []string{"uid-999"}}},
+			selector: ResourceSelector{UIDSelector: &UIDSelector{MatchUids: []string{"uid-999"}}},
 			want:     false,
 		},
 		{
 			name: "all set and all match (ANDed)",
-			selector: SecretSelector{
+			selector: ResourceSelector{
 				NameSelector:  &NameSelector{MatchNames: []string{"registry-*"}},
 				LabelSelector: &LabelSelector{MatchLabels: map[string]string{"tier": "frontend"}},
 				OwnerSelector: &OwnerSelector{MatchOwners: []OwnerReference{
@@ -145,7 +145,7 @@ func TestSecretSelectorMatches(t *testing.T) {
 		},
 		{
 			name: "all set but one fails (ANDed)",
-			selector: SecretSelector{
+			selector: ResourceSelector{
 				NameSelector:  &NameSelector{MatchNames: []string{"registry-*"}},
 				LabelSelector: &LabelSelector{MatchLabels: map[string]string{"tier": "frontend"}},
 				UIDSelector:   &UIDSelector{MatchUids: []string{"wrong-uid"}},

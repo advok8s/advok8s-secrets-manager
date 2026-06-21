@@ -117,7 +117,7 @@ type SecretInput struct {
 
 	// selector matches a set of Secrets in this namespace; the handle binds a list.
 	// +optional
-	Selector *selectors.SecretSelector `json:"selector,omitempty"`
+	Selector *selectors.ResourceSelector `json:"selector,omitempty"`
 
 	// allowEmpty permits a selector to match zero Secrets (binding an empty list)
 	// instead of holding generation in AwaitingInput.
@@ -142,7 +142,7 @@ type ConfigMapInput struct {
 
 	// selector matches a set of ConfigMaps in this namespace; the handle binds a list.
 	// +optional
-	Selector *selectors.SecretSelector `json:"selector,omitempty"`
+	Selector *selectors.ResourceSelector `json:"selector,omitempty"`
 
 	// allowEmpty permits a selector to match zero ConfigMaps (binding an empty list).
 	// +optional

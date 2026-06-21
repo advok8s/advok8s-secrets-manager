@@ -20,10 +20,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// SecretSelector matches a resource by any combination of name, labels, owner
+// ResourceSelector matches a resource by any combination of name, labels, owner
 // references and UID. It is the richest selector in the family: a superset of
-// NameLabelSelector that adds owner and uid matching, intended both for
-// SecretBuilder's secret inputs and (later) for SecretInjector's source secrets.
+// NameLabelSelector that adds owner and uid matching, used for the builder's
+// Secret and ConfigMap inputs and for SecretInjector's source secrets.
 //
 // The sub-selectors are pointers so each is omitted from the serialised object
 // when unset (the same pointer-for-omitempty pattern as NameLabelSelector),
@@ -35,7 +35,7 @@ import (
 // exclusions; a plain literal name with no glob metacharacters matches exactly,
 // so this remains a behavioural superset of NameLabelSelector's exact matching.
 // +k8s:deepcopy-gen=true
-type SecretSelector struct {
+type ResourceSelector struct {
 	// NameSelector matches the resource name (supports globs and "!" exclusions).
 	// +optional
 	NameSelector *NameSelector `json:"nameSelector,omitempty"`
@@ -55,7 +55,7 @@ type SecretSelector struct {
 
 // IsEmpty reports whether no criteria are set, in which case the selector matches
 // everything.
-func (s SecretSelector) IsEmpty() bool {
+func (s ResourceSelector) IsEmpty() bool {
 	return (s.NameSelector == nil || s.NameSelector.IsEmpty()) &&
 		(s.LabelSelector == nil || s.LabelSelector.IsEmpty()) &&
 		(s.OwnerSelector == nil || s.OwnerSelector.IsEmpty()) &&
@@ -64,8 +64,8 @@ func (s SecretSelector) IsEmpty() bool {
 
 // Matches reports whether the given object satisfies every set sub-selector. A
 // sub-selector that is unset or empty imposes no constraint, so an empty
-// SecretSelector matches any object.
-func (s SecretSelector) Matches(object metav1.Object) bool {
+// ResourceSelector matches any object.
+func (s ResourceSelector) Matches(object metav1.Object) bool {
 	if s.NameSelector != nil && !s.NameSelector.IsEmpty() && !s.NameSelector.Matches(object.GetName()) {
 		return false
 	}

@@ -67,7 +67,7 @@ var _ = Describe("SecretBuilder CRD validation", func() {
 		}
 		b.Spec.Inputs.Secrets = []secretsv1beta1.SecretInput{{
 			Name: "users",
-			Selector: &selectors.SecretSelector{
+			Selector: &selectors.ResourceSelector{
 				NameSelector: &selectors.NameSelector{MatchNames: []string{"user-*"}},
 			},
 		}}
@@ -79,7 +79,7 @@ var _ = Describe("SecretBuilder CRD validation", func() {
 		b.Spec.Inputs.Secrets = []secretsv1beta1.SecretInput{{
 			Name:      "db",
 			SecretRef: &corev1.LocalObjectReference{Name: "db-credentials"},
-			Selector:  &selectors.SecretSelector{NameSelector: &selectors.NameSelector{MatchNames: []string{"x"}}},
+			Selector:  &selectors.ResourceSelector{NameSelector: &selectors.NameSelector{MatchNames: []string{"x"}}},
 		}}
 		Expect(create(b)).ToNot(Succeed())
 	})
@@ -94,7 +94,7 @@ var _ = Describe("SecretBuilder CRD validation", func() {
 		b := validBuilder("invalid-empty-selector")
 		b.Spec.Inputs.Secrets = []secretsv1beta1.SecretInput{{
 			Name:     "db",
-			Selector: &selectors.SecretSelector{},
+			Selector: &selectors.ResourceSelector{},
 		}}
 		Expect(create(b)).ToNot(Succeed())
 	})

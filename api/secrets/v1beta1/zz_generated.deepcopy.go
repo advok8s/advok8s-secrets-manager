@@ -132,7 +132,7 @@ func (in *ConfigMapInput) DeepCopyInto(out *ConfigMapInput) {
 	}
 	if in.Selector != nil {
 		in, out := &in.Selector, &out.Selector
-		*out = new(selectors.SecretSelector)
+		*out = new(selectors.ResourceSelector)
 		(*in).DeepCopyInto(*out)
 	}
 }
@@ -1160,7 +1160,7 @@ func (in *SecretInput) DeepCopyInto(out *SecretInput) {
 	}
 	if in.Selector != nil {
 		in, out := &in.Selector, &out.Selector
-		*out = new(selectors.SecretSelector)
+		*out = new(selectors.ResourceSelector)
 		(*in).DeepCopyInto(*out)
 	}
 }
