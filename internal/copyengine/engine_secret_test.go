@@ -139,7 +139,7 @@ func TestSourceChanged(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			var annotations map[string]string
 			if c.targetManagedKeys != "" {
-				annotations = map[string]string{AnnotationManagedLabels: c.targetManagedKeys}
+				annotations = map[string]string{SecretAnnotationManagedLabels: c.targetManagedKeys}
 			}
 			source := &corev1.Secret{
 				Type:       c.sourceType,
@@ -170,8 +170,8 @@ func TestTargetManagedBy(t *testing.T) {
 		{
 			name: "matching managed-by and source annotations -> managed",
 			annotations: map[string]string{
-				AnnotationManagedBy:      managedBy,
-				AnnotationSourceResource: sourceRef,
+				SecretAnnotationManagedBy:      managedBy,
+				SecretAnnotationSourceResource: sourceRef,
 			},
 			expected: true,
 		},
@@ -183,16 +183,16 @@ func TestTargetManagedBy(t *testing.T) {
 		{
 			name: "wrong managed-by value -> not managed",
 			annotations: map[string]string{
-				AnnotationManagedBy:      "someone-else",
-				AnnotationSourceResource: sourceRef,
+				SecretAnnotationManagedBy:      "someone-else",
+				SecretAnnotationSourceResource: sourceRef,
 			},
 			expected: false,
 		},
 		{
 			name: "wrong source -> not managed",
 			annotations: map[string]string{
-				AnnotationManagedBy:      managedBy,
-				AnnotationSourceResource: "other-ns/other-secret",
+				SecretAnnotationManagedBy:      managedBy,
+				SecretAnnotationSourceResource: "other-ns/other-secret",
 			},
 			expected: false,
 		},
@@ -201,7 +201,7 @@ func TestTargetManagedBy(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			target := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Annotations: c.annotations}}
-			if got := TargetManagedBy(target, managedBy, sourceRef); got != c.expected {
+			if got := TargetManagedBy(secretAnnotationKeys, target, managedBy, sourceRef); got != c.expected {
 				t.Errorf("TargetManagedBy() = %v, want %v", got, c.expected)
 			}
 		})
@@ -250,10 +250,10 @@ func TestApplyManagedLabels(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			var annotations map[string]string
 			if c.managedKeys != "" {
-				annotations = map[string]string{AnnotationManagedLabels: c.managedKeys}
+				annotations = map[string]string{SecretAnnotationManagedLabels: c.managedKeys}
 			}
 			target := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Labels: c.current, Annotations: annotations}}
-			got := applyManagedLabels(target, c.expected)
+			got := applyManagedLabels(secretAnnotationKeys, target, c.expected)
 			if !mapStringStringEqual(got, c.want) {
 				t.Errorf("applyManagedLabels() = %v, want %v", got, c.want)
 			}

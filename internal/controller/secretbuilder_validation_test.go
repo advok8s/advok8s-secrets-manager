@@ -24,7 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 	"github.com/advok8s/advok8s-secrets-manager/pkg/selectors"
 )
 

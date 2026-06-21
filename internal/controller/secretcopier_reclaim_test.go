@@ -20,7 +20,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 )
 
 // The reclaim policy controls whether copies are garbage-collected with the

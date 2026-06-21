@@ -24,7 +24,7 @@ metadata:
 data:
   region: eu-west-1
 ---
-apiVersion: secrets.advok8s.io/v1beta1
+apiVersion: configmaps.advok8s.io/v1beta1
 kind: ConfigMapBuilder
 metadata:
   name: app-config

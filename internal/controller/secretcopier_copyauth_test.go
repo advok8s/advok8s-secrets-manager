@@ -21,7 +21,7 @@ import (
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 	"github.com/advok8s/advok8s-secrets-manager/internal/copyengine"
 )
 
@@ -52,7 +52,7 @@ var _ = Describe("SecretCopier with copyAuthorization", func() {
 
 			target := eventuallyGetSecret("ca-tgt-1", defaultSourceSecretName)
 
-			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedBy, "secretcopier/ca-copier-1"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.SecretAnnotationManagedBy, "secretcopier/ca-copier-1"))
 
 			// The copier, not the importer, owns the copy.
 			Expect(target.OwnerReferences).To(HaveLen(1))

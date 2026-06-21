@@ -22,7 +22,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/events"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 )
 
 // condition builds a single-element condition slice for the given type/status.

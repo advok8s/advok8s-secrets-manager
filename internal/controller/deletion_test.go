@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 )
 
 // When a custom resource has been marked for deletion, reconcilers should skip

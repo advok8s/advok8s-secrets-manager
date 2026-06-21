@@ -40,7 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 	sb "github.com/advok8s/advok8s-secrets-manager/internal/builder"
 )
 
@@ -148,7 +148,7 @@ func (r *SecretBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	manualToken := builder.Annotations[sb.RegenerateAnnotation]
+	manualToken := builder.Annotations[sb.SecretRegenerateAnnotation]
 	manualChanged := manualToken != "" && manualToken != status.ObservedRegenerateToken
 
 	action := decideAction(regenState{

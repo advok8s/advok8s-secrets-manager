@@ -19,6 +19,8 @@ package v1beta1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 )
 
 // ConfigMapBuilderSpec defines how a ConfigMap named the same as the
@@ -48,7 +50,7 @@ type ConfigMapBuilderSpec struct {
 	// regeneration controls if and when the ConfigMap is rebuilt after it is
 	// first generated. The default is to generate once and never touch it again.
 	// +optional
-	Regeneration Regeneration `json:"regeneration,omitzero"`
+	Regeneration secretsv1beta1.Regeneration `json:"regeneration,omitzero"`
 }
 
 // ConfigMapBuilderInputs declares everything the generator may reference.
@@ -70,7 +72,7 @@ type ConfigMapBuilderInputs struct {
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=100
-	Secrets []SecretInput `json:"secrets,omitempty"`
+	Secrets []secretsv1beta1.SecretInput `json:"secrets,omitempty"`
 
 	// configMaps references existing ConfigMaps in this namespace. Same shape
 	// as secrets.
@@ -78,7 +80,7 @@ type ConfigMapBuilderInputs struct {
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=100
-	ConfigMaps []ConfigMapInput `json:"configMaps,omitempty"`
+	ConfigMaps []secretsv1beta1.ConfigMapInput `json:"configMaps,omitempty"`
 
 	// generated declares operator-produced random material. Only the
 	// non-secret kinds are available (uuid, randomInt); secret material
@@ -95,7 +97,7 @@ type ConfigMapBuilderInputs struct {
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=100
-	Libraries []LibraryReference `json:"libraries,omitempty"`
+	Libraries []secretsv1beta1.LibraryReference `json:"libraries,omitempty"`
 }
 
 // ConfigMapGeneratedValue declares one piece of operator-generated, non-secret
@@ -111,9 +113,9 @@ type ConfigMapGeneratedValue struct {
 	Name string `json:"name"`
 
 	// +optional
-	UUID *UUIDSpec `json:"uuid,omitempty"`
+	UUID *secretsv1beta1.UUIDSpec `json:"uuid,omitempty"`
 	// +optional
-	RandomInt *RandomIntSpec `json:"randomInt,omitempty"`
+	RandomInt *secretsv1beta1.RandomIntSpec `json:"randomInt,omitempty"`
 }
 
 // ConfigMapBuilderOutput configures the produced ConfigMap. Its name is always
@@ -165,7 +167,7 @@ type ConfigMapTemplateGenerator struct {
 
 	// annotations are merged onto the output ConfigMap (over
 	// spec.output.annotations). Each value is rendered as a gotemplate. Keys
-	// under the operator-owned secrets.advok8s.io/ prefix are rejected.
+	// under the operator-owned configmaps.advok8s.io/ prefix are rejected.
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
 }

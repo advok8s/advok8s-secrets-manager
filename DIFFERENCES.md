@@ -19,15 +19,20 @@ and the plan for adding them, see the porting plan kept alongside the repository
 
 ## Naming / GVK
 
-- **API group** is `secrets.advok8s.io` (not `secrets.educates.dev`). The
-  version is `v1beta1`.
-- **Tracking annotations** on copied resources follow the same rename:
-  `secrets.advok8s.io/copier-rule` (value `kind/name`, e.g. `secretcopier/x`,
-  `secretexporter/y` or `configmapcopier/z`) and `secrets.advok8s.io/resource`
-  (value `namespace/name` of the source) — the `secrets.educates.dev/...`
-  equivalents. Two further annotations, `secrets.advok8s.io/managed-labels` and
-  `secrets.advok8s.io/managed-annotations`, record the label and annotation
-  keys the operator manages on each copy (see the copy semantics below).
+- **API group** for the Secret resources (SecretCopier, SecretExporter,
+  SecretImporter, SecretInjector, SecretBuilder) is `secrets.advok8s.io` (not
+  `secrets.educates.dev`). The ConfigMap resources (ConfigMapCopier,
+  ConfigMapBuilder) live in their own `configmaps.advok8s.io` group. Both use
+  version `v1beta1`.
+- **Tracking annotations** on copied resources follow the same rename, with the
+  prefix matching the group that owns the copy: a Secret copy is stamped with
+  `secrets.advok8s.io/copier-rule` (value `kind/name`, e.g. `secretcopier/x` or
+  `secretexporter/y`) and `secrets.advok8s.io/resource` (value `namespace/name`
+  of the source); a ConfigMap copy uses the `configmaps.advok8s.io/` equivalents
+  (e.g. `configmaps.advok8s.io/copier-rule` with value `configmapcopier/z`).
+  Two further annotations per prefix, `…/managed-labels` and
+  `…/managed-annotations`, record the label and annotation keys the operator
+  manages on each copy (see the copy semantics below).
 
 Because the group differs, secrets copied by the Educates operator are not
 recognised as managed by this one, and vice versa. This matters only if both

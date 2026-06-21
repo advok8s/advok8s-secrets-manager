@@ -38,7 +38,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	configmapsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/configmaps/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 	"github.com/advok8s/advok8s-secrets-manager/internal/builder"
 	"github.com/advok8s/advok8s-secrets-manager/internal/controller"
 	// +kubebuilder:scaffold:imports
@@ -53,6 +54,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(secretsv1beta1.AddToScheme(scheme))
+	utilruntime.Must(configmapsv1beta1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 

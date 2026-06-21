@@ -117,7 +117,7 @@ func TestConfigMapSourceChanged(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			var annotations map[string]string
 			if c.targetManagedKeys != "" {
-				annotations = map[string]string{AnnotationManagedLabels: c.targetManagedKeys}
+				annotations = map[string]string{ConfigMapAnnotationManagedLabels: c.targetManagedKeys}
 			}
 			source := &corev1.ConfigMap{
 				Data:       c.sourceData,
@@ -190,14 +190,14 @@ func TestCopyConfigMapCreates(t *testing.T) {
 	if target.Labels["app"] != "demo" || target.Labels["copied"] != "true" {
 		t.Errorf("target labels mismatch: %v", target.Labels)
 	}
-	if target.Annotations[AnnotationManagedBy] != "configmapcopier/test" {
-		t.Errorf("managed-by annotation = %q", target.Annotations[AnnotationManagedBy])
+	if target.Annotations[ConfigMapAnnotationManagedBy] != "configmapcopier/test" {
+		t.Errorf("managed-by annotation = %q", target.Annotations[ConfigMapAnnotationManagedBy])
 	}
-	if target.Annotations[AnnotationSourceResource] != "platform/app-config" {
-		t.Errorf("source annotation = %q", target.Annotations[AnnotationSourceResource])
+	if target.Annotations[ConfigMapAnnotationSourceResource] != "platform/app-config" {
+		t.Errorf("source annotation = %q", target.Annotations[ConfigMapAnnotationSourceResource])
 	}
-	if target.Annotations[AnnotationManagedLabels] != "app,copied" {
-		t.Errorf("managed-labels annotation = %q", target.Annotations[AnnotationManagedLabels])
+	if target.Annotations[ConfigMapAnnotationManagedLabels] != "app,copied" {
+		t.Errorf("managed-labels annotation = %q", target.Annotations[ConfigMapAnnotationManagedLabels])
 	}
 }
 
@@ -237,8 +237,8 @@ func TestCopyConfigMapUpdatesOnDrift(t *testing.T) {
 	if target.Labels["copied"] != "true" {
 		t.Errorf("target label from rule missing: %v", target.Labels)
 	}
-	if target.Annotations[AnnotationManagedLabels] != "copied" {
-		t.Errorf("managed-labels annotation = %q, want %q", target.Annotations[AnnotationManagedLabels], "copied")
+	if target.Annotations[ConfigMapAnnotationManagedLabels] != "copied" {
+		t.Errorf("managed-labels annotation = %q, want %q", target.Annotations[ConfigMapAnnotationManagedLabels], "copied")
 	}
 }
 

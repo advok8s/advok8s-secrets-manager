@@ -28,7 +28,7 @@ data:
   # A tiny binary payload, base64 as text: bytes ff 00 01.
   logo.b64: /wAB
 ---
-apiVersion: secrets.advok8s.io/v1beta1
+apiVersion: configmaps.advok8s.io/v1beta1
 kind: ConfigMapBuilder
 metadata:
   name: branding

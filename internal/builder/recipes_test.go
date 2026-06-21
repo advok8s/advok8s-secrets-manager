@@ -30,7 +30,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"k8s.io/client-go/tools/clientcmd"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 )
 
 func TestTLSBundle(t *testing.T) {

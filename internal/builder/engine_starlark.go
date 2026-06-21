@@ -270,7 +270,7 @@ func parseSecretOutput(value starlark.Value, maxBytes int) (*Result, error) {
 	if result.Annotations, err = parseStringMap(m, "secret", "annotations"); err != nil {
 		return nil, err
 	}
-	if err := validateAnnotations(result.Annotations, "secret"); err != nil {
+	if err := validateAnnotations(result.Annotations, "secret", secretReservedAnnotationPrefix); err != nil {
 		return nil, err
 	}
 
@@ -352,7 +352,7 @@ func parseConfigMapOutput(value starlark.Value, maxBytes int) (*Result, error) {
 	if result.Annotations, err = parseStringMap(m, "configMap", "annotations"); err != nil {
 		return nil, err
 	}
-	if err := validateAnnotations(result.Annotations, "configMap"); err != nil {
+	if err := validateAnnotations(result.Annotations, "configMap", configMapReservedAnnotationPrefix); err != nil {
 		return nil, err
 	}
 

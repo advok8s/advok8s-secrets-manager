@@ -75,7 +75,7 @@ secret = {"data": {"k": "v"}, "annotations": {"secrets.advok8s.io/revision": "ta
 	}
 
 	_, err = renderConfigMapScript(t, `
-configMap = {"data": {"k": "v"}, "annotations": {"secrets.advok8s.io/x": "y"}}
+configMap = {"data": {"k": "v"}, "annotations": {"configmaps.advok8s.io/x": "y"}}
 `)
 	if err == nil || !strings.Contains(err.Error(), "reserved for the operator") {
 		t.Fatalf("expected reserved-prefix error, got %v", err)

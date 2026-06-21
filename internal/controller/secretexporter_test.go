@@ -40,8 +40,8 @@ var _ = Describe("SecretExporter exporting a secret", func() {
 
 			target := eventuallyGetSecret("exp-tgt-1", "regcred-1")
 
-			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedBy, "secretexporter/regcred-1"))
-			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationSourceResource, "exp-src-1/regcred-1"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.SecretAnnotationManagedBy, "secretexporter/regcred-1"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.SecretAnnotationSourceResource, "exp-src-1/regcred-1"))
 
 			Expect(target.OwnerReferences).To(HaveLen(1))
 			owner := target.OwnerReferences[0]
@@ -92,7 +92,7 @@ var _ = Describe("SecretExporter exporting a secret", func() {
 			createSecretImporter("exp-tgt-4", "regcred-4", string(exporter.UID))
 
 			target := eventuallyGetSecret("exp-tgt-4", "regcred-4")
-			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedBy, "secretexporter/regcred-4"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.SecretAnnotationManagedBy, "secretexporter/regcred-4"))
 		})
 	})
 

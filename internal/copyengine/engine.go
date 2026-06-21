@@ -70,31 +70,72 @@ const (
 // the copies it manages, which source they were copied from, and which labels
 // it owns on them.
 const (
-	// AnnotationManagedBy records which copy rule owns the target. Its value
+	// SecretAnnotationManagedBy records which copy rule owns the target. Its value
 	// is supplied by the caller (ManagedByValue) as "kind/name" (e.g.
 	// "secretcopier/x", "secretexporter/y" or "configmapcopier/z") so the same
 	// key identifies copies made by different custom resources without them
 	// fighting over a shared target name.
-	AnnotationManagedBy = "secrets.advok8s.io/copier-rule"
-	// AnnotationSourceResource records the "namespace/name" of the source
+	SecretAnnotationManagedBy = "secrets.advok8s.io/copier-rule"
+	// SecretAnnotationSourceResource records the "namespace/name" of the source
 	// resource the target was copied from. A copied Secret can only have a
 	// Secret source (and a ConfigMap a ConfigMap source), so the kind is not
 	// encoded in the value.
-	AnnotationSourceResource = "secrets.advok8s.io/resource"
-	// AnnotationManagedLabels records, as a sorted comma-joined list, the
+	SecretAnnotationSourceResource = "secrets.advok8s.io/resource"
+	// SecretAnnotationManagedLabels records, as a sorted comma-joined list, the
 	// label keys the operator manages on the target. Label reconciliation is
 	// managed-subset: labels outside this set (for example injected by a
 	// mutating admission webhook such as a Kyverno policy) are neither
 	// compared nor touched, so the operator never fights admission-time label
 	// injection in a reconcile loop. The recorded set is how a label removed
 	// from the source is also removed from the target.
-	AnnotationManagedLabels = "secrets.advok8s.io/managed-labels"
-	// AnnotationManagedAnnotations records the annotation keys the operator
+	SecretAnnotationManagedLabels = "secrets.advok8s.io/managed-labels"
+	// SecretAnnotationManagedAnnotations records the annotation keys the operator
 	// manages on the target (the rule's target annotations), with the same
-	// managed-subset semantics as AnnotationManagedLabels: annotations outside
+	// managed-subset semantics as SecretAnnotationManagedLabels: annotations outside
 	// this set - including these tracking annotations and anything set by
 	// third parties - are neither compared nor touched.
-	AnnotationManagedAnnotations = "secrets.advok8s.io/managed-annotations"
+	SecretAnnotationManagedAnnotations = "secrets.advok8s.io/managed-annotations"
+)
+
+// ConfigMap copies are tracked under the configmaps.advok8s.io/ prefix, which
+// matches the API group ConfigMapCopier lives in, so a target ConfigMap's
+// bookkeeping annotations name the group that owns it. The semantics are
+// identical to the Secret tracking annotations above.
+const (
+	ConfigMapAnnotationManagedBy          = "configmaps.advok8s.io/copier-rule"
+	ConfigMapAnnotationSourceResource     = "configmaps.advok8s.io/resource"
+	ConfigMapAnnotationManagedLabels      = "configmaps.advok8s.io/managed-labels"
+	ConfigMapAnnotationManagedAnnotations = "configmaps.advok8s.io/managed-annotations"
+)
+
+// AnnotationKeys is the set of tracking annotation keys a copy path stamps on
+// (and reads back from) its targets. Secret and ConfigMap copies use different
+// keys so each target's bookkeeping names the API group that owns it.
+type AnnotationKeys struct {
+	ManagedBy          string
+	SourceResource     string
+	ManagedLabels      string
+	ManagedAnnotations string
+}
+
+var (
+	// secretAnnotationKeys are the keys used by the Secret copy path
+	// (SecretCopier, SecretExporter).
+	secretAnnotationKeys = AnnotationKeys{
+		ManagedBy:          SecretAnnotationManagedBy,
+		SourceResource:     SecretAnnotationSourceResource,
+		ManagedLabels:      SecretAnnotationManagedLabels,
+		ManagedAnnotations: SecretAnnotationManagedAnnotations,
+	}
+
+	// configMapAnnotationKeys are the keys used by the ConfigMap copy path
+	// (ConfigMapCopier).
+	configMapAnnotationKeys = AnnotationKeys{
+		ManagedBy:          ConfigMapAnnotationManagedBy,
+		SourceResource:     ConfigMapAnnotationSourceResource,
+		ManagedLabels:      ConfigMapAnnotationManagedLabels,
+		ManagedAnnotations: ConfigMapAnnotationManagedAnnotations,
+	}
 )
 
 // Engine performs resource copies against a Kubernetes client.
@@ -119,15 +160,16 @@ func FilterActiveNamespaces(namespaces []corev1.Namespace) []corev1.Namespace {
 
 // TargetManagedBy reports whether an existing target resource was created by
 // the given rule (managedByValue) from the given source ("namespace/name"). It
-// is determined from the tracking annotations on the target.
-func TargetManagedBy(target metav1.Object, managedByValue, sourceRef string) bool {
+// is determined from the tracking annotations on the target, read under the
+// supplied key set (Secret or ConfigMap).
+func TargetManagedBy(keys AnnotationKeys, target metav1.Object, managedByValue, sourceRef string) bool {
 	annotations := target.GetAnnotations()
 
-	if annotations[AnnotationManagedBy] != managedByValue {
+	if annotations[keys.ManagedBy] != managedByValue {
 		return false
 	}
 
-	if annotations[AnnotationSourceResource] != sourceRef {
+	if annotations[keys.SourceResource] != sourceRef {
 		return false
 	}
 
@@ -146,8 +188,8 @@ func overlayLabels(base, extra map[string]string) map[string]string {
 }
 
 // managedKeys returns the keys recorded as managed on the target under the
-// given tracking annotation (AnnotationManagedLabels or
-// AnnotationManagedAnnotations). A missing or empty annotation yields nil.
+// given tracking annotation (SecretAnnotationManagedLabels or
+// SecretAnnotationManagedAnnotations). A missing or empty annotation yields nil.
 func managedKeys(target metav1.Object, recordAnnotation string) []string {
 	raw := target.GetAnnotations()[recordAnnotation]
 	if raw == "" {
@@ -210,25 +252,26 @@ func applyManagedSubset(current map[string]string, managed []string, expected ma
 }
 
 // labelsDrift / annotationsDrift report whether the target's labels /
-// annotations need re-syncing under managed-subset semantics.
-func labelsDrift(target metav1.Object, expected map[string]string) bool {
-	return managedSubsetDrift(target.GetLabels(), managedKeys(target, AnnotationManagedLabels), expected)
+// annotations need re-syncing under managed-subset semantics. The managed-key
+// tracking annotations are read under the supplied key set.
+func labelsDrift(keys AnnotationKeys, target metav1.Object, expected map[string]string) bool {
+	return managedSubsetDrift(target.GetLabels(), managedKeys(target, keys.ManagedLabels), expected)
 }
 
-func annotationsDrift(target metav1.Object, expected map[string]string) bool {
-	return managedSubsetDrift(target.GetAnnotations(), managedKeys(target, AnnotationManagedAnnotations), expected)
+func annotationsDrift(keys AnnotationKeys, target metav1.Object, expected map[string]string) bool {
+	return managedSubsetDrift(target.GetAnnotations(), managedKeys(target, keys.ManagedAnnotations), expected)
 }
 
 // applyManagedLabels / applyManagedAnnotations return the target's labels /
 // annotations with the expected set applied and stale previously-managed keys
 // removed. Both must be called before the managed-keys tracking annotations
 // are rewritten, since they read the previously managed set from the target.
-func applyManagedLabels(target metav1.Object, expected map[string]string) map[string]string {
-	return applyManagedSubset(target.GetLabels(), managedKeys(target, AnnotationManagedLabels), expected)
+func applyManagedLabels(keys AnnotationKeys, target metav1.Object, expected map[string]string) map[string]string {
+	return applyManagedSubset(target.GetLabels(), managedKeys(target, keys.ManagedLabels), expected)
 }
 
-func applyManagedAnnotations(target metav1.Object, expected map[string]string) map[string]string {
-	return applyManagedSubset(target.GetAnnotations(), managedKeys(target, AnnotationManagedAnnotations), expected)
+func applyManagedAnnotations(keys AnnotationKeys, target metav1.Object, expected map[string]string) map[string]string {
+	return applyManagedSubset(target.GetAnnotations(), managedKeys(target, keys.ManagedAnnotations), expected)
 }
 
 // ---- map equality ----------------------------------------------------------

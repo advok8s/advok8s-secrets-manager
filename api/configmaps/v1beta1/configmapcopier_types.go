@@ -42,13 +42,24 @@ type TargetConfigMap struct {
 
 	// Annotations to apply to the configmap. Reconciled as a managed subset,
 	// like labels: annotations outside this set are never compared or touched.
-	// Keys under the operator-owned secrets.advok8s.io/ prefix are rejected
+	// Keys under the operator-owned configmaps.advok8s.io/ prefix are rejected
 	// (the tracking annotations live there).
 	// +kubebuilder:validation:MaxProperties=32
-	// +kubebuilder:validation:XValidation:rule="self.all(k, !k.startsWith('secrets.advok8s.io/'))",message="annotation keys under the operator-owned secrets.advok8s.io/ prefix are not allowed"
+	// +kubebuilder:validation:XValidation:rule="self.all(k, !k.startsWith('configmaps.advok8s.io/'))",message="annotation keys under the operator-owned configmaps.advok8s.io/ prefix are not allowed"
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
+
+// Reclaim policy for a copied configmap.
+// +kubebuilder:validation:Enum=Delete;Retain
+type ReclaimPolicy string
+
+const (
+	// ReclaimDelete garbage-collects the copy when its owning rule is deleted.
+	ReclaimDelete ReclaimPolicy = "Delete"
+	// ReclaimRetain leaves the copy in place when its owning rule is deleted.
+	ReclaimRetain ReclaimPolicy = "Retain"
+)
 
 // ConfigMapCopierRule is a rule for copying a configmap. Unlike SecretCopier
 // there is no copyAuthorization: ConfigMaps carry no secret material, so

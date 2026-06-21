@@ -36,7 +36,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	configmapsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/configmaps/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 	builderpkg "github.com/advok8s/advok8s-secrets-manager/internal/builder"
 	// +kubebuilder:scaffold:imports
 )
@@ -65,6 +66,8 @@ var _ = BeforeSuite(func() {
 
 	var err error
 	err = secretsv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	err = configmapsv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme

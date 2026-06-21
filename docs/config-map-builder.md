@@ -13,7 +13,7 @@ not covered here behaves exactly as documented for ``SecretBuilder``.
 The raw custom resource definition can be viewed by running:
 
 ```shell
-kubectl get crd/configmapbuilders.secrets.advok8s.io -o yaml
+kubectl get crd/configmapbuilders.configmaps.advok8s.io -o yaml
 ```
 
 The field-level reference is generated from the API types and stays in sync
@@ -26,7 +26,7 @@ kubectl explain configmapbuilder.spec
 The simplest builder has just a generator:
 
 ```yaml
-apiVersion: secrets.advok8s.io/v1beta1
+apiVersion: configmaps.advok8s.io/v1beta1
 kind: ConfigMapBuilder
 metadata:
   name: app-config
@@ -108,7 +108,7 @@ The rules, enforced identically whichever engine produced the output:
 - ``labels`` and ``annotations`` are optional and merge over
   ``spec.output.labels`` / ``spec.output.annotations`` (the generator's value
   wins on a shared key). Annotation keys under the operator-owned
-  ``secrets.advok8s.io/`` prefix are rejected. Any other key in the
+  ``configmaps.advok8s.io/`` prefix are rejected. Any other key in the
   ``configMap`` dict is an error, so a typo is caught rather than silently
   dropped.
 
@@ -176,16 +176,18 @@ Regeneration, companion state and chaining
 
 The regeneration model is ``SecretBuilder``'s, unchanged: generate-once by
 default; ``onInputChange`` refresh replaying persisted material; ``rotateEvery``
-(with ``rotateGenerated``) and the manual ``secrets.advok8s.io/regenerate``
+(with ``rotateGenerated``) and the manual ``configmaps.advok8s.io/regenerate``
 annotation for rotation. Two points worth calling out:
 
 - **The companion state is a Secret** — ``<name>-configmapbuilder-state`` —
   regardless of the output kind, because generated material is entropy. (This
   is also why builder names are capped at 230 characters, enforced at
   admission: the companion name must fit the 253-character object name limit.)
-- **The revision annotation is shared.** The output ConfigMap is stamped with
-  ``secrets.advok8s.io/revision`` (a content hash covering both ``data`` and
-  ``binaryData``), the same key SecretBuilder uses — so builder chains work
+- **The revision annotation is group-scoped.** The output ConfigMap is stamped
+  with ``configmaps.advok8s.io/revision`` (a content hash covering both
+  ``data`` and ``binaryData``), while a SecretBuilder output is stamped with
+  ``secrets.advok8s.io/revision``. The resolver reads each input's revision
+  under the annotation matching that input's kind, so builder chains still work
   across kinds in both directions: a ConfigMapBuilder output can feed a
   SecretBuilder's ``configMaps`` input and vice versa, with ``onInputChange``
   picking up the upstream revision change.

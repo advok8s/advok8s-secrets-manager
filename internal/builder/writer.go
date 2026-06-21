@@ -76,7 +76,7 @@ func WriteSecret(ctx context.Context, c client.Client, scheme *runtime.Scheme, o
 		}
 		maps.Copy(secret.Annotations, req.Annotations)
 		if req.Revision != "" {
-			secret.Annotations[RevisionAnnotation] = req.Revision
+			secret.Annotations[SecretRevisionAnnotation] = req.Revision
 		}
 
 		secret.Data = req.Data
@@ -125,7 +125,7 @@ func WriteConfigMap(ctx context.Context, c client.Client, scheme *runtime.Scheme
 		}
 		maps.Copy(configMap.Annotations, req.Annotations)
 		if req.Revision != "" {
-			configMap.Annotations[RevisionAnnotation] = req.Revision
+			configMap.Annotations[ConfigMapRevisionAnnotation] = req.Revision
 		}
 
 		configMap.Data = req.Data
@@ -155,8 +155,9 @@ func RevisionOf(data map[string][]byte) string {
 
 // ConfigMapRevisionOf is RevisionOf over both ConfigMap maps, with domain
 // separation between data and binaryData so moving a key between them changes
-// the revision. It is stamped under the same revision annotation as Secret
-// outputs, so cross-kind builder chaining observes changes uniformly.
+// the revision. It is stamped under ConfigMapRevisionAnnotation; the resolver
+// reads each input object's revision under the annotation matching that
+// object's kind, so cross-kind builder chaining observes changes uniformly.
 func ConfigMapRevisionOf(data map[string]string, binaryData map[string][]byte) string {
 	h := sha256.New()
 

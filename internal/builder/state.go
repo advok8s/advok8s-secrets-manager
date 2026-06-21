@@ -39,11 +39,6 @@ func CompanionConfigMapBuilderStateName(builderName string) string {
 	return builderName + "-configmapbuilder-state"
 }
 
-// RegenerateAnnotation, when set on a SecretBuilder to a new value, triggers a
-// manual rotation (the kubectl rollout-restart idiom). The controller records the
-// last-handled value in status so each new value rotates exactly once.
-const RegenerateAnnotation = "secrets.advok8s.io/regenerate"
-
 // persistedValue is a type-tagged serialisation of a generated attribute, so a
 // round-trip preserves whether a value was a string, raw bytes, or an integer.
 type persistedValue struct {

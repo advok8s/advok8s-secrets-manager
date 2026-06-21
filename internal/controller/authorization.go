@@ -21,7 +21,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 )
 
 // authorizeCopyTarget resolves the SecretImporter (if any) named targetName in

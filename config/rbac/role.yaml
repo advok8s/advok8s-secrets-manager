@@ -49,10 +49,37 @@ rules:
   verbs:
   - create
 - apiGroups:
-  - secrets.advok8s.io
+  - configmaps.advok8s.io
   resources:
   - configmapbuilders
   - configmapcopiers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - configmaps.advok8s.io
+  resources:
+  - configmapbuilders/finalizers
+  - configmapcopiers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - configmaps.advok8s.io
+  resources:
+  - configmapbuilders/status
+  - configmapcopiers/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - secrets.advok8s.io
+  resources:
   - secretbuilders
   - secretcopiers
   - secretexporters
@@ -69,8 +96,6 @@ rules:
 - apiGroups:
   - secrets.advok8s.io
   resources:
-  - configmapbuilders/finalizers
-  - configmapcopiers/finalizers
   - secretbuilders/finalizers
   - secretcopiers/finalizers
   - secretexporters/finalizers
@@ -81,8 +106,6 @@ rules:
 - apiGroups:
   - secrets.advok8s.io
   resources:
-  - configmapbuilders/status
-  - configmapcopiers/status
   - secretbuilders/status
   - secretcopiers/status
   - secretexporters/status

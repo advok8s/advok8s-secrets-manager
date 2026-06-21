@@ -25,4 +25,22 @@ resources:
 - secretcopier_admin_role.yaml
 - secretcopier_editor_role.yaml
 - secretcopier_viewer_role.yaml
+- secretexporter_admin_role.yaml
+- secretexporter_editor_role.yaml
+- secretexporter_viewer_role.yaml
+- secretimporter_admin_role.yaml
+- secretimporter_editor_role.yaml
+- secretimporter_viewer_role.yaml
+- secretinjector_admin_role.yaml
+- secretinjector_editor_role.yaml
+- secretinjector_viewer_role.yaml
+- secretbuilder_admin_role.yaml
+- secretbuilder_editor_role.yaml
+- secretbuilder_viewer_role.yaml
+- configmapcopier_admin_role.yaml
+- configmapcopier_editor_role.yaml
+- configmapcopier_viewer_role.yaml
+- configmapbuilder_admin_role.yaml
+- configmapbuilder_editor_role.yaml
+- configmapbuilder_viewer_role.yaml
 

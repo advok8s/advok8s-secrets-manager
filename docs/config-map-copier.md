@@ -17,7 +17,7 @@ existing authorized machinery.
 The raw custom resource definition can be viewed by running:
 
 ```shell
-kubectl get crd/configmapcopiers.secrets.advok8s.io -o yaml
+kubectl get crd/configmapcopiers.configmaps.advok8s.io -o yaml
 ```
 
 The field-level reference:
@@ -30,7 +30,7 @@ Rules
 -----
 
 ```yaml
-apiVersion: secrets.advok8s.io/v1beta1
+apiVersion: configmaps.advok8s.io/v1beta1
 kind: ConfigMapCopier
 metadata:
   name: org-defaults
@@ -71,7 +71,7 @@ A copy is a full replacement, continuously converged:
   as failures in status.)
 - **Labels are reconciled as a managed subset.** The operator records the label
   keys it manages (source labels plus the rule's ``targetConfigMap.labels``) in
-  the ``secrets.advok8s.io/managed-labels`` annotation and reconciles exactly
+  the ``configmaps.advok8s.io/managed-labels`` annotation and reconciles exactly
   that set: a managed label removed from the source is removed from the copy,
   while labels added to the copy by anything else — for example a Kyverno or
   Gatekeeper mutating policy stamping labels at admission — are neither
@@ -81,13 +81,13 @@ A copy is a full replacement, continuously converged:
   **never** copied (annotations are often controller-specific instructions
   that must not propagate verbatim); the rule's ``targetConfigMap.annotations``
   are applied explicitly, recorded in the
-  ``secrets.advok8s.io/managed-annotations`` annotation, and reconciled exactly
+  ``configmaps.advok8s.io/managed-annotations`` annotation, and reconciled exactly
   like managed labels — re-asserted when tampered with, removed when dropped
-  from the rule. Keys under the operator-owned ``secrets.advok8s.io/`` prefix
+  from the rule. Keys under the operator-owned ``configmaps.advok8s.io/`` prefix
   are rejected at admission. Annotations outside the managed set are never
   compared or rewritten, so third-party annotations persist. The sharp edge:
   the tracking annotations live in that same unguarded space — stripping
-  ``secrets.advok8s.io/copier-rule`` or ``secrets.advok8s.io/resource`` from a
+  ``configmaps.advok8s.io/copier-rule`` or ``configmaps.advok8s.io/resource`` from a
   copy orphans it (the operator reports a conflict and stops updating it).
 
 Conflicts

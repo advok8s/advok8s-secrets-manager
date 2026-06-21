@@ -57,7 +57,7 @@ type Request struct {
 	// the CRD schema.
 	TargetAnnotations map[string]string
 
-	// ManagedByValue is stamped under AnnotationManagedBy and used for conflict
+	// ManagedByValue is stamped under SecretAnnotationManagedBy and used for conflict
 	// detection: an existing target is only updated when its annotation matches
 	// this value (and the source annotation matches the source identity).
 	ManagedByValue string
@@ -120,10 +120,10 @@ func (e *Engine) CopySecret(ctx context.Context, req Request) Outcome {
 		log.V(1).Info("Creating target secret", "targetSecret", req.TargetName, "targetNamespace", req.TargetNamespace)
 
 		annotations := overlayLabels(req.TargetAnnotations, map[string]string{
-			AnnotationManagedBy:          req.ManagedByValue,
-			AnnotationSourceResource:     sourceRef,
-			AnnotationManagedLabels:      encodeManagedKeys(expectedLabels),
-			AnnotationManagedAnnotations: encodeManagedKeys(req.TargetAnnotations),
+			SecretAnnotationManagedBy:          req.ManagedByValue,
+			SecretAnnotationSourceResource:     sourceRef,
+			SecretAnnotationManagedLabels:      encodeManagedKeys(expectedLabels),
+			SecretAnnotationManagedAnnotations: encodeManagedKeys(req.TargetAnnotations),
 		})
 
 		targetSecret = corev1.Secret{
@@ -152,7 +152,7 @@ func (e *Engine) CopySecret(ctx context.Context, req Request) Outcome {
 	// from this source; otherwise a foreign secret owns the target name and we
 	// leave it untouched, reporting a conflict.
 
-	if !TargetManagedBy(&targetSecret, req.ManagedByValue, sourceRef) {
+	if !TargetManagedBy(secretAnnotationKeys, &targetSecret, req.ManagedByValue, sourceRef) {
 		log.V(1).Info("Skipping update of target secret as not managed by this rule", "targetSecret", req.TargetName, "targetNamespace", req.TargetNamespace)
 		return Conflict
 	}
@@ -165,10 +165,10 @@ func (e *Engine) CopySecret(ctx context.Context, req Request) Outcome {
 	if SourceChanged(req.Source, &targetSecret, req.TargetLabels, req.TargetAnnotations) {
 		log.V(1).Info("Updating target secret", "targetSecret", req.TargetName, "targetNamespace", req.TargetNamespace)
 
-		targetSecret.Labels = applyManagedLabels(&targetSecret, expectedLabels)
-		targetSecret.Annotations = applyManagedAnnotations(&targetSecret, req.TargetAnnotations)
-		targetSecret.Annotations[AnnotationManagedLabels] = encodeManagedKeys(expectedLabels)
-		targetSecret.Annotations[AnnotationManagedAnnotations] = encodeManagedKeys(req.TargetAnnotations)
+		targetSecret.Labels = applyManagedLabels(secretAnnotationKeys, &targetSecret, expectedLabels)
+		targetSecret.Annotations = applyManagedAnnotations(secretAnnotationKeys, &targetSecret, req.TargetAnnotations)
+		targetSecret.Annotations[SecretAnnotationManagedLabels] = encodeManagedKeys(expectedLabels)
+		targetSecret.Annotations[SecretAnnotationManagedAnnotations] = encodeManagedKeys(req.TargetAnnotations)
 		targetSecret.Data = req.Source.Data
 		targetSecret.Type = req.Source.Type
 
@@ -197,9 +197,9 @@ func SourceChanged(source, target *corev1.Secret, extraLabels, extraAnnotations 
 		return true
 	}
 
-	if labelsDrift(target, overlayLabels(source.Labels, extraLabels)) {
+	if labelsDrift(secretAnnotationKeys, target, overlayLabels(source.Labels, extraLabels)) {
 		return true
 	}
 
-	return annotationsDrift(target, extraAnnotations)
+	return annotationsDrift(secretAnnotationKeys, target, extraAnnotations)
 }

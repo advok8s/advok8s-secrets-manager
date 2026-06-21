@@ -39,7 +39,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	configmapsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/configmaps/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 	sb "github.com/advok8s/advok8s-secrets-manager/internal/builder"
 )
 
@@ -60,9 +61,9 @@ type ConfigMapBuilderReconciler struct {
 	Rand io.Reader
 }
 
-// +kubebuilder:rbac:groups=secrets.advok8s.io,resources=configmapbuilders,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=secrets.advok8s.io,resources=configmapbuilders/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=secrets.advok8s.io,resources=configmapbuilders/finalizers,verbs=update
+// +kubebuilder:rbac:groups=configmaps.advok8s.io,resources=configmapbuilders,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=configmaps.advok8s.io,resources=configmapbuilders/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=configmaps.advok8s.io,resources=configmapbuilders/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
@@ -71,7 +72,7 @@ type ConfigMapBuilderReconciler struct {
 func (r *ConfigMapBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	var builder secretsv1beta1.ConfigMapBuilder
+	var builder configmapsv1beta1.ConfigMapBuilder
 	if err := r.Get(ctx, req.NamespacedName, &builder); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -127,7 +128,7 @@ func (r *ConfigMapBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 	}
 
-	manualToken := builder.Annotations[sb.RegenerateAnnotation]
+	manualToken := builder.Annotations[sb.ConfigMapRegenerateAnnotation]
 	manualChanged := manualToken != "" && manualToken != status.ObservedRegenerateToken
 
 	action := decideAction(regenState{
@@ -151,7 +152,7 @@ func (r *ConfigMapBuilderReconciler) Reconcile(ctx context.Context, req ctrl.Req
 // replays) the generated material, runs the engine, writes the output
 // ConfigMap and companion state, then updates status.
 func (r *ConfigMapBuilderReconciler) generateWriteAndFinish(ctx context.Context,
-	builder *secretsv1beta1.ConfigMapBuilder, status *secretsv1beta1.ConfigMapBuilderStatus, prev prevConditions,
+	builder *configmapsv1beta1.ConfigMapBuilder, status *configmapsv1beta1.ConfigMapBuilderStatus, prev prevConditions,
 	resolved *sb.ResolvedInputs, action genAction, companionGen map[string]map[string]any,
 	companionAt time.Time, now metav1.Time, fingerprint, manualToken string) (ctrl.Result, error) {
 	regen := builder.Spec.Regeneration
@@ -238,8 +239,8 @@ func (r *ConfigMapBuilderReconciler) generateWriteAndFinish(ctx context.Context,
 
 // handleRenderError maps an engine render error to the right terminal condition:
 // a RetryError holds in AwaitingInput and requeues, anything else degrades.
-func (r *ConfigMapBuilderReconciler) handleRenderError(ctx context.Context, builder *secretsv1beta1.ConfigMapBuilder,
-	status *secretsv1beta1.ConfigMapBuilderStatus, prev prevConditions, err error) (ctrl.Result, error) {
+func (r *ConfigMapBuilderReconciler) handleRenderError(ctx context.Context, builder *configmapsv1beta1.ConfigMapBuilder,
+	status *configmapsv1beta1.ConfigMapBuilderStatus, prev prevConditions, err error) (ctrl.Result, error) {
 	var retryErr *sb.RetryError
 	if errors.As(err, &retryErr) {
 		msg := retryErr.Message
@@ -255,7 +256,7 @@ func (r *ConfigMapBuilderReconciler) handleRenderError(ctx context.Context, buil
 }
 
 // loadCompanion reads the persisted generated material and frozen generatedAt.
-func (r *ConfigMapBuilderReconciler) loadCompanion(ctx context.Context, builder *secretsv1beta1.ConfigMapBuilder) (map[string]map[string]any, time.Time, bool, error) {
+func (r *ConfigMapBuilderReconciler) loadCompanion(ctx context.Context, builder *configmapsv1beta1.ConfigMapBuilder) (map[string]map[string]any, time.Time, bool, error) {
 	var companion corev1.Secret
 	err := r.Get(ctx, client.ObjectKey{Namespace: builder.Namespace, Name: sb.CompanionConfigMapBuilderStateName(builder.Name)}, &companion)
 	if apierrors.IsNotFound(err) {
@@ -275,7 +276,7 @@ func (r *ConfigMapBuilderReconciler) loadCompanion(ctx context.Context, builder 
 	return generated, generatedAt, true, nil
 }
 
-func (r *ConfigMapBuilderReconciler) writeCompanion(ctx context.Context, builder *secretsv1beta1.ConfigMapBuilder, generated map[string]map[string]any, generatedAt time.Time) error {
+func (r *ConfigMapBuilderReconciler) writeCompanion(ctx context.Context, builder *configmapsv1beta1.ConfigMapBuilder, generated map[string]map[string]any, generatedAt time.Time) error {
 	data, err := sb.SerializeGenerated(generated)
 	if err != nil {
 		return err
@@ -290,14 +291,14 @@ func (r *ConfigMapBuilderReconciler) writeCompanion(ctx context.Context, builder
 	})
 }
 
-func (r *ConfigMapBuilderReconciler) fail(ctx context.Context, builder *secretsv1beta1.ConfigMapBuilder, status *secretsv1beta1.ConfigMapBuilderStatus, prev prevConditions, err error) (ctrl.Result, error) {
+func (r *ConfigMapBuilderReconciler) fail(ctx context.Context, builder *configmapsv1beta1.ConfigMapBuilder, status *configmapsv1beta1.ConfigMapBuilderStatus, prev prevConditions, err error) (ctrl.Result, error) {
 	const reason = "GeneratorError"
 	setConfigMapBuilderConditions(status, builder.Generation, metav1.ConditionFalse, reason, err.Error(),
 		metav1.ConditionTrue, reason, err.Error())
 	return r.finish(ctx, builder, *status, prev, ctrl.Result{})
 }
 
-func (r *ConfigMapBuilderReconciler) finish(ctx context.Context, builder *secretsv1beta1.ConfigMapBuilder, status secretsv1beta1.ConfigMapBuilderStatus, prev prevConditions, result ctrl.Result) (ctrl.Result, error) {
+func (r *ConfigMapBuilderReconciler) finish(ctx context.Context, builder *configmapsv1beta1.ConfigMapBuilder, status configmapsv1beta1.ConfigMapBuilderStatus, prev prevConditions, result ctrl.Result) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	r.emitEvents(builder, prev, status.Conditions)
@@ -315,7 +316,7 @@ func (r *ConfigMapBuilderReconciler) finish(ctx context.Context, builder *secret
 	return result, nil
 }
 
-func (r *ConfigMapBuilderReconciler) emitEvents(builder *secretsv1beta1.ConfigMapBuilder, prev prevConditions, conditions []metav1.Condition) {
+func (r *ConfigMapBuilderReconciler) emitEvents(builder *configmapsv1beta1.ConfigMapBuilder, prev prevConditions, conditions []metav1.Condition) {
 	if r.Recorder == nil {
 		return
 	}
@@ -343,7 +344,7 @@ func (r *ConfigMapBuilderReconciler) emitEvents(builder *secretsv1beta1.ConfigMa
 	}
 }
 
-func (r *ConfigMapBuilderReconciler) engineFor(builder *secretsv1beta1.ConfigMapBuilder) (sb.Engine, error) {
+func (r *ConfigMapBuilderReconciler) engineFor(builder *configmapsv1beta1.ConfigMapBuilder) (sb.Engine, error) {
 	g := builder.Spec.Generator
 	switch {
 	case g.Script != nil:
@@ -369,7 +370,7 @@ func (r *ConfigMapBuilderReconciler) randReader() io.Reader {
 // own output (the generate-and-own drift model).
 func (r *ConfigMapBuilderReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&secretsv1beta1.ConfigMapBuilder{}, ctrlbuilder.WithPredicates(
+		For(&configmapsv1beta1.ConfigMapBuilder{}, ctrlbuilder.WithPredicates(
 			predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{}))).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.findBuildersForSecret), ctrlbuilder.OnlyMetadata).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.findBuildersForConfigMap), ctrlbuilder.OnlyMetadata).
@@ -380,7 +381,7 @@ func (r *ConfigMapBuilderReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // findBuildersForSecret enqueues onInputChange builders whose secret inputs
 // match the changed Secret. The watch delivers metadata only.
 func (r *ConfigMapBuilderReconciler) findBuildersForSecret(ctx context.Context, object client.Object) []reconcile.Request {
-	var builders secretsv1beta1.ConfigMapBuilderList
+	var builders configmapsv1beta1.ConfigMapBuilderList
 	if err := r.List(ctx, &builders); err != nil {
 		return nil
 	}
@@ -405,7 +406,7 @@ func (r *ConfigMapBuilderReconciler) findBuildersForSecret(ctx context.Context, 
 // inputs match the changed ConfigMap, carrying upstream-revision propagation
 // through ConfigMapBuilder chains.
 func (r *ConfigMapBuilderReconciler) findBuildersForConfigMap(ctx context.Context, object client.Object) []reconcile.Request {
-	var builders secretsv1beta1.ConfigMapBuilderList
+	var builders configmapsv1beta1.ConfigMapBuilderList
 	if err := r.List(ctx, &builders); err != nil {
 		return nil
 	}
@@ -428,8 +429,8 @@ func (r *ConfigMapBuilderReconciler) findBuildersForConfigMap(ctx context.Contex
 
 // ---- helpers ------------------------------------------------------------
 
-func copyConfigMapBuilderStatus(builder *secretsv1beta1.ConfigMapBuilder) secretsv1beta1.ConfigMapBuilderStatus {
-	return secretsv1beta1.ConfigMapBuilderStatus{
+func copyConfigMapBuilderStatus(builder *configmapsv1beta1.ConfigMapBuilder) configmapsv1beta1.ConfigMapBuilderStatus {
+	return configmapsv1beta1.ConfigMapBuilderStatus{
 		ObservedGeneration:      builder.Generation,
 		Conditions:              builder.Status.Conditions,
 		ConfigMapName:           builder.Name,
@@ -442,12 +443,12 @@ func copyConfigMapBuilderStatus(builder *secretsv1beta1.ConfigMapBuilder) secret
 	}
 }
 
-func setConfigMapGenerated(status *secretsv1beta1.ConfigMapBuilderStatus, builder *secretsv1beta1.ConfigMapBuilder) {
+func setConfigMapGenerated(status *configmapsv1beta1.ConfigMapBuilderStatus, builder *configmapsv1beta1.ConfigMapBuilder) {
 	setConfigMapBuilderConditions(status, builder.Generation, metav1.ConditionTrue, "Generated",
 		fmt.Sprintf("ConfigMap %q generated", builder.Name), metav1.ConditionFalse, "Generated", "ConfigMap generated")
 }
 
-func setConfigMapBuilderConditions(status *secretsv1beta1.ConfigMapBuilderStatus, generation int64,
+func setConfigMapBuilderConditions(status *configmapsv1beta1.ConfigMapBuilderStatus, generation int64,
 	ready metav1.ConditionStatus, readyReason, readyMsg string,
 	degraded metav1.ConditionStatus, degradedReason, degradedMsg string) {
 	meta.SetStatusCondition(&status.Conditions, metav1.Condition{

@@ -38,13 +38,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	configmapsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/configmaps/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 )
-
-// RevisionAnnotation is stamped on a produced Secret with a content-derived hash
-// so downstream builders observe upstream changes. The resolver folds it into the
-// input fingerprint when present on a referenced Secret.
-const RevisionAnnotation = "secrets.advok8s.io/revision"
 
 // rootCAConfigMap is the well-known ConfigMap kube-* publishes into every
 // namespace; its ca.crt key is the cluster CA used for serviceAccount.cluster.caCert.
@@ -173,7 +169,7 @@ func InputsForSecretBuilder(in *secretsv1beta1.SecretBuilderInputs) Inputs {
 // The curated generated union converts to the full GeneratedValue form so
 // GenerateAll and the persistence/replay machinery are reused unchanged; there
 // is never a ServiceAccount input.
-func InputsForConfigMapBuilder(in *secretsv1beta1.ConfigMapBuilderInputs) Inputs {
+func InputsForConfigMapBuilder(in *configmapsv1beta1.ConfigMapBuilderInputs) Inputs {
 	generated := make([]secretsv1beta1.GeneratedValue, 0, len(in.Generated))
 	for i := range in.Generated {
 		g := in.Generated[i]
@@ -525,7 +521,7 @@ func decodeConstants(raw *runtime.RawExtension) (map[string]any, error) {
 }
 
 func secretRevision(s *ResolvedSecret) string {
-	if rev := s.Annotations[RevisionAnnotation]; rev != "" {
+	if rev := s.Annotations[SecretRevisionAnnotation]; rev != "" {
 		return rev
 	}
 	h := sha256.New()
@@ -536,7 +532,7 @@ func secretRevision(s *ResolvedSecret) string {
 }
 
 func configMapRevision(c *ResolvedConfigMap) string {
-	if rev := c.Annotations[RevisionAnnotation]; rev != "" {
+	if rev := c.Annotations[ConfigMapRevisionAnnotation]; rev != "" {
 		return rev
 	}
 	h := sha256.New()

@@ -24,7 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 	"github.com/advok8s/advok8s-secrets-manager/internal/copyengine"
 )
 
@@ -41,7 +41,7 @@ var _ = Describe("Conflicting rules targeting the same secret", func() {
 		Consistently(func(g Gomega) {
 			secret := &corev1.Secret{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, secret)).To(Succeed())
-			g.Expect(secret.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedBy, copierRule))
+			g.Expect(secret.Annotations).To(HaveKeyWithValue(copyengine.SecretAnnotationManagedBy, copierRule))
 			g.Expect(secret.Data).To(HaveKeyWithValue("owner", []byte(dataOwner)))
 		}, 2*time.Second, 250*time.Millisecond).Should(Succeed())
 	}
@@ -58,7 +58,7 @@ var _ = Describe("Conflicting rules targeting the same secret", func() {
 				nameSelectorRule("conf-copier-src", "shared-cred", "shared-cred", "conf-tgt"))
 
 			target := eventuallyGetSecret("conf-tgt", "shared-cred")
-			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedBy, "secretcopier/conf-winner"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.SecretAnnotationManagedBy, "secretcopier/conf-winner"))
 
 			// Now an exporter (with an authorizing importer) targets the same name.
 			createOpaqueSecret("conf-exp-src", "shared-cred", map[string]string{"owner": "exporter"}, nil)
@@ -88,7 +88,7 @@ var _ = Describe("Conflicting rules targeting the same secret", func() {
 				nameSelectorRule("conf2-src-a", "dup", "dup", "conf2-tgt"))
 
 			target := eventuallyGetSecret("conf2-tgt", "dup")
-			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationSourceResource, "conf2-src-a/dup"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.SecretAnnotationSourceResource, "conf2-src-a/dup"))
 
 			createOpaqueSecret("conf2-src-b", "dup", map[string]string{"owner": "b"}, nil)
 			createSecretCopier("conf2-copier-b",

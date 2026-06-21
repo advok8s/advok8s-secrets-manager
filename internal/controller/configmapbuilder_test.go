@@ -32,7 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	configmapsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/configmaps/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 	builderpkg "github.com/advok8s/advok8s-secrets-manager/internal/builder"
 )
 
@@ -54,11 +55,11 @@ var _ = Describe("ConfigMapBuilder", func() {
 	const timeout = 10 * time.Second
 	const interval = 200 * time.Millisecond
 
-	newScriptBuilder := func(ns, name, script string) *secretsv1beta1.ConfigMapBuilder {
-		return &secretsv1beta1.ConfigMapBuilder{
+	newScriptBuilder := func(ns, name, script string) *configmapsv1beta1.ConfigMapBuilder {
+		return &configmapsv1beta1.ConfigMapBuilder{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
-			Spec: secretsv1beta1.ConfigMapBuilderSpec{
-				Generator: secretsv1beta1.ConfigMapBuilderGenerator{Script: ptr.To(script)},
+			Spec: configmapsv1beta1.ConfigMapBuilderSpec{
+				Generator: configmapsv1beta1.ConfigMapBuilderGenerator{Script: ptr.To(script)},
 			},
 		}
 	}
@@ -70,7 +71,7 @@ var _ = Describe("ConfigMapBuilder", func() {
 	}
 
 	readyReason := func(ns, name string) string {
-		var b secretsv1beta1.ConfigMapBuilder
+		var b configmapsv1beta1.ConfigMapBuilder
 		if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &b); err != nil {
 			return ""
 		}
@@ -97,13 +98,13 @@ configMap = {
 			g.Expect(out.Data).To(HaveKeyWithValue("setting", "value"))
 			g.Expect(out.BinaryData).To(HaveKeyWithValue("blob", []byte{0xff, 0x00, 0x01}))
 			g.Expect(out.Labels).To(HaveKeyWithValue("app", "demo"))
-			g.Expect(out.Annotations).To(HaveKey(builderpkg.RevisionAnnotation))
+			g.Expect(out.Annotations).To(HaveKey(builderpkg.ConfigMapRevisionAnnotation))
 			g.Expect(out.OwnerReferences).To(HaveLen(1))
 			g.Expect(out.OwnerReferences[0].Kind).To(Equal("ConfigMapBuilder"))
 		}, timeout, interval).Should(Succeed())
 
 		Eventually(func(g Gomega) {
-			var current secretsv1beta1.ConfigMapBuilder
+			var current configmapsv1beta1.ConfigMapBuilder
 			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: "cmb-script", Name: "app-config"}, &current)).To(Succeed())
 			g.Expect(current.Status.Generated).To(BeTrue())
 			g.Expect(current.Status.ConfigMapName).To(Equal("app-config"))
@@ -121,16 +122,16 @@ configMap = {
 		}
 		Expect(k8sClient.Create(ctx, secret)).To(Succeed())
 
-		b := &secretsv1beta1.ConfigMapBuilder{
+		b := &configmapsv1beta1.ConfigMapBuilder{
 			ObjectMeta: metav1.ObjectMeta{Name: "db-info", Namespace: "cmb-derive"},
-			Spec: secretsv1beta1.ConfigMapBuilderSpec{
-				Inputs: secretsv1beta1.ConfigMapBuilderInputs{
+			Spec: configmapsv1beta1.ConfigMapBuilderSpec{
+				Inputs: configmapsv1beta1.ConfigMapBuilderInputs{
 					Secrets: []secretsv1beta1.SecretInput{
 						{Name: "db", SecretRef: &corev1.LocalObjectReference{Name: "db-credentials"}},
 					},
 				},
-				Generator: secretsv1beta1.ConfigMapBuilderGenerator{
-					Template: &secretsv1beta1.ConfigMapTemplateGenerator{
+				Generator: configmapsv1beta1.ConfigMapBuilderGenerator{
+					Template: &configmapsv1beta1.ConfigMapTemplateGenerator{
 						Data: map[string]string{"username": `{{ .secrets.db.data.username }}`},
 					},
 				},
@@ -147,14 +148,14 @@ configMap = {
 
 	It("merges template annotations over output annotations", func() {
 		createNamespace("cmb-annotations")
-		b := &secretsv1beta1.ConfigMapBuilder{
+		b := &configmapsv1beta1.ConfigMapBuilder{
 			ObjectMeta: metav1.ObjectMeta{Name: "annotated", Namespace: "cmb-annotations"},
-			Spec: secretsv1beta1.ConfigMapBuilderSpec{
-				Output: secretsv1beta1.ConfigMapBuilderOutput{
+			Spec: configmapsv1beta1.ConfigMapBuilderSpec{
+				Output: configmapsv1beta1.ConfigMapBuilderOutput{
 					Annotations: map[string]string{"shared": "static", "static-only": "x"},
 				},
-				Generator: secretsv1beta1.ConfigMapBuilderGenerator{
-					Template: &secretsv1beta1.ConfigMapTemplateGenerator{
+				Generator: configmapsv1beta1.ConfigMapBuilderGenerator{
+					Template: &configmapsv1beta1.ConfigMapTemplateGenerator{
 						Data:        map[string]string{"k": "v"},
 						Annotations: map[string]string{"example.com/ns": `{{ .context.namespace }}`, "shared": "dynamic"},
 					},
@@ -169,7 +170,7 @@ configMap = {
 			g.Expect(out.Annotations["example.com/ns"]).To(Equal("cmb-annotations"))
 			g.Expect(out.Annotations["shared"]).To(Equal("dynamic"), "dynamic annotations win over spec.output.annotations")
 			g.Expect(out.Annotations["static-only"]).To(Equal("x"))
-			g.Expect(out.Annotations).To(HaveKey(builderpkg.RevisionAnnotation))
+			g.Expect(out.Annotations).To(HaveKey(builderpkg.ConfigMapRevisionAnnotation))
 		}, timeout, interval).Should(Succeed())
 	})
 
@@ -216,7 +217,7 @@ configMap = {
 		out.Data["v"] = "hand-edited"
 		Expect(k8sClient.Update(ctx, out)).To(Succeed())
 
-		var current secretsv1beta1.ConfigMapBuilder
+		var current configmapsv1beta1.ConfigMapBuilder
 		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: "cmb-once", Name: "stable"}, &current)).To(Succeed())
 		current.Spec.Output.Labels = map[string]string{"touched": "true"}
 		Expect(k8sClient.Update(ctx, &current)).To(Succeed())
@@ -243,7 +244,7 @@ configMap = {"data": {
 		b.Spec.Inputs.ConfigMaps = []secretsv1beta1.ConfigMapInput{
 			{Name: "src", ConfigMapRef: &corev1.LocalObjectReference{Name: "upstream"}},
 		}
-		b.Spec.Inputs.Generated = []secretsv1beta1.ConfigMapGeneratedValue{
+		b.Spec.Inputs.Generated = []configmapsv1beta1.ConfigMapGeneratedValue{
 			{Name: "instance", UUID: &secretsv1beta1.UUIDSpec{}},
 		}
 		b.Spec.Regeneration = secretsv1beta1.Regeneration{OnInputChange: true}
@@ -286,7 +287,7 @@ configMap = {"data": {
 	It("rotates on the regenerate annotation", func() {
 		createNamespace("cmb-manual")
 		b := newScriptBuilder("cmb-manual", "rotated", `configMap = {"data": {"id": input.generated.instance.value}}`)
-		b.Spec.Inputs.Generated = []secretsv1beta1.ConfigMapGeneratedValue{
+		b.Spec.Inputs.Generated = []configmapsv1beta1.ConfigMapGeneratedValue{
 			{Name: "instance", UUID: &secretsv1beta1.UUIDSpec{}},
 		}
 		b.Spec.Regeneration = secretsv1beta1.Regeneration{OnInputChange: true, RotateGenerated: true}
@@ -301,12 +302,12 @@ configMap = {"data": {
 		}, timeout, interval).Should(Succeed())
 
 		Eventually(func(g Gomega) {
-			var current secretsv1beta1.ConfigMapBuilder
+			var current configmapsv1beta1.ConfigMapBuilder
 			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: "cmb-manual", Name: "rotated"}, &current)).To(Succeed())
 			if current.Annotations == nil {
 				current.Annotations = map[string]string{}
 			}
-			current.Annotations[builderpkg.RegenerateAnnotation] = "1"
+			current.Annotations[builderpkg.ConfigMapRegenerateAnnotation] = "1"
 			g.Expect(k8sClient.Update(ctx, &current)).To(Succeed())
 		}).Should(Succeed())
 
@@ -321,7 +322,7 @@ configMap = {"data": {
 		It("rejects a generated password kind (not in the curated union)", func() {
 			createNamespace("cmb-schema")
 			raw := `
-apiVersion: secrets.advok8s.io/v1beta1
+apiVersion: configmaps.advok8s.io/v1beta1
 kind: ConfigMapBuilder
 metadata:
   name: bad-generated
@@ -343,7 +344,7 @@ spec:
 		It("prunes a serviceAccount input (the field does not exist in the schema)", func() {
 			createNamespace("cmb-schema2")
 			raw := `
-apiVersion: secrets.advok8s.io/v1beta1
+apiVersion: configmaps.advok8s.io/v1beta1
 kind: ConfigMapBuilder
 metadata:
   name: no-sa
@@ -363,7 +364,7 @@ spec:
 			Expect(applyRawManifest(raw)).To(Succeed())
 
 			var stored unstructured.Unstructured
-			stored.SetAPIVersion("secrets.advok8s.io/v1beta1")
+			stored.SetAPIVersion("configmaps.advok8s.io/v1beta1")
 			stored.SetKind("ConfigMapBuilder")
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: "cmb-schema2", Name: "no-sa"}, &stored)).To(Succeed())
 			_, found, err := unstructured.NestedMap(stored.Object, "spec", "inputs", "serviceAccount")

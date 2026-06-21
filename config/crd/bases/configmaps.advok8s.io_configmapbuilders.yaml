@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: configmapbuilders.secrets.advok8s.io
+  name: configmapbuilders.configmaps.advok8s.io
 spec:
-  group: secrets.advok8s.io
+  group: configmaps.advok8s.io
   names:
     kind: ConfigMapBuilder
     listKind: ConfigMapBuilderList
@@ -89,7 +89,7 @@ spec:
                         description: |-
                           annotations are merged onto the output ConfigMap (over
                           spec.output.annotations). Each value is rendered as a gotemplate. Keys
-                          under the operator-owned secrets.advok8s.io/ prefix are rejected.
+                          under the operator-owned configmaps.advok8s.io/ prefix are rejected.
                         type: object
                       data:
                         additionalProperties:

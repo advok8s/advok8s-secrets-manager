@@ -51,25 +51,25 @@ func TestSourceChangedAnnotationDrift(t *testing.T) {
 		},
 		{
 			name:              "expected annotation wrong value",
-			targetAnnotations: map[string]string{"example.com/team": "b", AnnotationManagedAnnotations: "example.com/team"},
+			targetAnnotations: map[string]string{"example.com/team": "b", SecretAnnotationManagedAnnotations: "example.com/team"},
 			extraAnnotations:  expected,
 			expectChanged:     true,
 		},
 		{
 			name:              "managed-then-dropped annotation still present",
-			targetAnnotations: map[string]string{"example.com/team": "a", AnnotationManagedAnnotations: "example.com/team"},
+			targetAnnotations: map[string]string{"example.com/team": "a", SecretAnnotationManagedAnnotations: "example.com/team"},
 			extraAnnotations:  nil,
 			expectChanged:     true,
 		},
 		{
 			name:              "foreign annotations are invisible",
-			targetAnnotations: map[string]string{"kyverno.io/injected": "x", AnnotationManagedAnnotations: ""},
+			targetAnnotations: map[string]string{"kyverno.io/injected": "x", SecretAnnotationManagedAnnotations: ""},
 			extraAnnotations:  nil,
 			expectChanged:     false,
 		},
 		{
 			name:              "in sync",
-			targetAnnotations: map[string]string{"example.com/team": "a", "third.party/x": "y", AnnotationManagedAnnotations: "example.com/team"},
+			targetAnnotations: map[string]string{"example.com/team": "a", "third.party/x": "y", SecretAnnotationManagedAnnotations: "example.com/team"},
 			extraAnnotations:  expected,
 			expectChanged:     false,
 		},
@@ -125,8 +125,8 @@ func TestCopySecretTargetAnnotationsLifecycle(t *testing.T) {
 	if target.Annotations["example.com/team"] != "a" || target.Annotations["example.com/tier"] != "1" {
 		t.Errorf("rule annotations not applied: %v", target.Annotations)
 	}
-	if target.Annotations[AnnotationManagedAnnotations] != "example.com/team,example.com/tier" {
-		t.Errorf("managed-annotations record = %q", target.Annotations[AnnotationManagedAnnotations])
+	if target.Annotations[SecretAnnotationManagedAnnotations] != "example.com/team,example.com/tier" {
+		t.Errorf("managed-annotations record = %q", target.Annotations[SecretAnnotationManagedAnnotations])
 	}
 	if _, copied := target.Annotations["source.only/note"]; copied {
 		t.Errorf("source annotation must not be copied: %v", target.Annotations)
@@ -181,11 +181,11 @@ func TestCopySecretTargetAnnotationsLifecycle(t *testing.T) {
 	if target.Annotations["third.party/x"] != "y" {
 		t.Errorf("foreign annotation clobbered: %v", target.Annotations)
 	}
-	if target.Annotations[AnnotationManagedBy] != "secretcopier/test" || target.Annotations[AnnotationSourceResource] != "platform/creds" {
+	if target.Annotations[SecretAnnotationManagedBy] != "secretcopier/test" || target.Annotations[SecretAnnotationSourceResource] != "platform/creds" {
 		t.Errorf("tracking annotations damaged: %v", target.Annotations)
 	}
-	if target.Annotations[AnnotationManagedAnnotations] != "example.com/team" {
-		t.Errorf("managed-annotations record = %q", target.Annotations[AnnotationManagedAnnotations])
+	if target.Annotations[SecretAnnotationManagedAnnotations] != "example.com/team" {
+		t.Errorf("managed-annotations record = %q", target.Annotations[SecretAnnotationManagedAnnotations])
 	}
 }
 
@@ -209,8 +209,8 @@ func TestCopyConfigMapTargetAnnotations(t *testing.T) {
 	if target.Annotations["example.com/origin"] != "platform" {
 		t.Errorf("rule annotation not applied: %v", target.Annotations)
 	}
-	if target.Annotations[AnnotationManagedAnnotations] != "example.com/origin" {
-		t.Errorf("managed-annotations record = %q", target.Annotations[AnnotationManagedAnnotations])
+	if target.Annotations[ConfigMapAnnotationManagedAnnotations] != "example.com/origin" {
+		t.Errorf("managed-annotations record = %q", target.Annotations[ConfigMapAnnotationManagedAnnotations])
 	}
 
 	// Dropping the annotation from the rule removes it from the copy.
@@ -224,7 +224,7 @@ func TestCopyConfigMapTargetAnnotations(t *testing.T) {
 	if _, present := target.Annotations["example.com/origin"]; present {
 		t.Errorf("managed-then-dropped annotation remains: %v", target.Annotations)
 	}
-	if target.Annotations[AnnotationManagedBy] == "" || target.Annotations[AnnotationSourceResource] == "" {
+	if target.Annotations[ConfigMapAnnotationManagedBy] == "" || target.Annotations[ConfigMapAnnotationSourceResource] == "" {
 		t.Errorf("tracking annotations damaged: %v", target.Annotations)
 	}
 }

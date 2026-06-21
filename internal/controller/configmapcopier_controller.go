@@ -36,7 +36,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	configmapsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/configmaps/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 	"github.com/advok8s/advok8s-secrets-manager/internal/copyengine"
 )
 
@@ -51,9 +52,9 @@ type ConfigMapCopierReconciler struct {
 	Recorder events.EventRecorder
 }
 
-// +kubebuilder:rbac:groups=secrets.advok8s.io,resources=configmapcopiers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=secrets.advok8s.io,resources=configmapcopiers/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=secrets.advok8s.io,resources=configmapcopiers/finalizers,verbs=update
+// +kubebuilder:rbac:groups=configmaps.advok8s.io,resources=configmapcopiers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=configmaps.advok8s.io,resources=configmapcopiers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=configmaps.advok8s.io,resources=configmapcopiers/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
@@ -63,7 +64,7 @@ type ConfigMapCopierReconciler struct {
 func (r *ConfigMapCopierReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	var copier secretsv1beta1.ConfigMapCopier
+	var copier configmapsv1beta1.ConfigMapCopier
 
 	if err := r.Get(ctx, req.NamespacedName, &copier); err != nil {
 		if client.IgnoreNotFound(err) == nil {
@@ -105,7 +106,7 @@ func (r *ConfigMapCopierReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	prevDegraded := conditionStatus(copier.Status.Conditions, secretsv1beta1.ConditionDegraded)
 
-	status := secretsv1beta1.ConfigMapCopierStatus{
+	status := configmapsv1beta1.ConfigMapCopierStatus{
 		ObservedGeneration: copier.Generation,
 		Conditions:         copier.Status.Conditions, // seed so transition times are preserved
 	}
@@ -113,7 +114,7 @@ func (r *ConfigMapCopierReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	for i := range copier.Spec.Rules {
 		rule := copier.Spec.Rules[i]
 
-		ruleStatus := secretsv1beta1.ConfigMapRuleStatus{
+		ruleStatus := configmapsv1beta1.ConfigMapRuleStatus{
 			SourceConfigMap: rule.SourceConfigMap.Namespace + "/" + rule.SourceConfigMap.Name,
 		}
 
@@ -232,7 +233,7 @@ func (r *ConfigMapCopierReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 func (r *ConfigMapCopierReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		// Only reconcile on spec changes, not on our own status writes.
-		For(&secretsv1beta1.ConfigMapCopier{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&configmapsv1beta1.ConfigMapCopier{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(
 			&corev1.ConfigMap{},
 			handler.EnqueueRequestsFromMapFunc(r.findCopiersForConfigMap),
@@ -255,7 +256,7 @@ func (r *ConfigMapCopierReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *ConfigMapCopierReconciler) findCopiersForConfigMap(ctx context.Context, configMap client.Object) []reconcile.Request {
 	log := logf.FromContext(ctx)
 
-	var copiers secretsv1beta1.ConfigMapCopierList
+	var copiers configmapsv1beta1.ConfigMapCopierList
 
 	if err := r.List(ctx, &copiers, &client.ListOptions{}); err != nil {
 		log.Error(err, "Unable to list ConfigMapCopier objects")
@@ -298,7 +299,7 @@ func (r *ConfigMapCopierReconciler) findCopiersMatchingTargetNamespace(ctx conte
 		return nil
 	}
 
-	var copiers secretsv1beta1.ConfigMapCopierList
+	var copiers configmapsv1beta1.ConfigMapCopierList
 
 	if err := r.List(ctx, &copiers, &client.ListOptions{}); err != nil {
 		log.Error(err, "Unable to list ConfigMapCopier objects")
@@ -325,7 +326,7 @@ func (r *ConfigMapCopierReconciler) findCopiersMatchingTargetNamespace(ctx conte
 // target name (defaulting to the source name), the tracking identity stamped on
 // copies, and the owner reference derived from the reclaim policy - while the
 // engine performs the create/update/skip and reports the outcome.
-func (r *ConfigMapCopierReconciler) copyConfigMapToNamespace(ctx context.Context, copier *secretsv1beta1.ConfigMapCopier, rule *secretsv1beta1.ConfigMapCopierRule, configMap *corev1.ConfigMap, targetNamespace string) copyengine.Outcome {
+func (r *ConfigMapCopierReconciler) copyConfigMapToNamespace(ctx context.Context, copier *configmapsv1beta1.ConfigMapCopier, rule *configmapsv1beta1.ConfigMapCopierRule, configMap *corev1.ConfigMap, targetNamespace string) copyengine.Outcome {
 	sourceConfigMap := rule.SourceConfigMap
 
 	targetName := rule.TargetConfigMap.Name
@@ -339,9 +340,9 @@ func (r *ConfigMapCopierReconciler) copyConfigMapToNamespace(ctx context.Context
 
 	var ownerReferences []metav1.OwnerReference
 
-	if rule.ReclaimPolicy == secretsv1beta1.ReclaimDelete {
+	if rule.ReclaimPolicy == configmapsv1beta1.ReclaimDelete {
 		ownerReferences = append(ownerReferences, metav1.OwnerReference{
-			APIVersion:         secretsv1beta1.GroupVersion.String(),
+			APIVersion:         configmapsv1beta1.GroupVersion.String(),
 			Kind:               "ConfigMapCopier",
 			Name:               copier.Name,
 			UID:                copier.UID,

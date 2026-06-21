@@ -30,7 +30,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 	builderpkg "github.com/advok8s/advok8s-secrets-manager/internal/builder"
 )
 
@@ -89,7 +89,7 @@ secret = {"data": {"derived": db + "-x"}, "labels": {"app": "demo"}, "type": "Op
 			g.Expect(err).ToNot(HaveOccurred())
 			g.Expect(string(out.Data["derived"])).To(Equal("pw-x"))
 			g.Expect(out.Labels["app"]).To(Equal("demo"))
-			g.Expect(out.Annotations).To(HaveKey(builderpkg.RevisionAnnotation))
+			g.Expect(out.Annotations).To(HaveKey(builderpkg.SecretRevisionAnnotation))
 			g.Expect(out.OwnerReferences).To(HaveLen(1))
 			g.Expect(out.OwnerReferences[0].Kind).To(Equal("SecretBuilder"))
 			g.Expect(*out.OwnerReferences[0].Controller).To(BeTrue())
@@ -130,7 +130,7 @@ secret = {"data": {"k": "v"}, "annotations": {"example.com/expiry": "2030-01-01"
 			g.Expect(out.Annotations["example.com/expiry"]).To(Equal("2030-01-01"))
 			g.Expect(out.Annotations["shared"]).To(Equal("dynamic"), "dynamic annotations win over spec.output.annotations")
 			g.Expect(out.Annotations["static-only"]).To(Equal("x"))
-			g.Expect(out.Annotations).To(HaveKey(builderpkg.RevisionAnnotation))
+			g.Expect(out.Annotations).To(HaveKey(builderpkg.SecretRevisionAnnotation))
 		}, timeout, interval).Should(Succeed())
 	})
 

@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 	"github.com/advok8s/advok8s-secrets-manager/internal/copyengine"
 )
 
@@ -101,7 +101,7 @@ func (r *SecretImporterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	case secretErr != nil && client.IgnoreNotFound(secretErr) != nil:
 		log.Error(secretErr, "Unable to fetch imported secret", "name", req.NamespacedName)
 		return ctrl.Result{}, secretErr
-	case secretErr == nil && secret.Annotations[copyengine.AnnotationManagedBy] != "":
+	case secretErr == nil && secret.Annotations[copyengine.SecretAnnotationManagedBy] != "":
 		status.Imported = true
 		status.BoundTo = boundToDescription(&secret)
 	}
@@ -210,8 +210,8 @@ func (r *SecretImporterReconciler) hasMatchingExportOrCopy(ctx context.Context, 
 // boundToDescription derives a human-readable identifier of what exported a
 // secret, from the tracking annotations on the imported copy.
 func boundToDescription(secret *corev1.Secret) string {
-	owner := secret.Annotations[copyengine.AnnotationManagedBy]
-	source := secret.Annotations[copyengine.AnnotationSourceResource]
+	owner := secret.Annotations[copyengine.SecretAnnotationManagedBy]
+	source := secret.Annotations[copyengine.SecretAnnotationSourceResource]
 
 	if source != "" {
 		return owner + " (" + source + ")"

@@ -35,7 +35,7 @@ binaryData:
   # A small binary payload (not valid UTF-8), carried as binaryData.
   marker: /wAB
 ---
-apiVersion: secrets.advok8s.io/v1beta1
+apiVersion: configmaps.advok8s.io/v1beta1
 kind: ConfigMapCopier
 metadata:
   name: demo-cmcopier-basic

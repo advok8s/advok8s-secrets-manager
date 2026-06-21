@@ -116,7 +116,7 @@ func (e *TemplateEngine) Render(in *ResolvedInputs) (*Result, error) {
 			}
 			result.Annotations[key] = v
 		}
-		if err := validateAnnotations(result.Annotations, "template"); err != nil {
+		if err := validateAnnotations(result.Annotations, "template", e.Kind.reservedPrefix()); err != nil {
 			return nil, err
 		}
 	}

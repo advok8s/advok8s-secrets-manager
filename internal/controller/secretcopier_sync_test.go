@@ -103,7 +103,7 @@ var _ = Describe("SecretCopier keeping a target secret in sync", func() {
 					Name:      defaultTargetSecretName,
 				}, existing)).To(Succeed())
 				g.Expect(existing.Data).To(HaveKeyWithValue("pre", []byte("existing")))
-				g.Expect(existing.Annotations).NotTo(HaveKey(copyengine.AnnotationManagedBy))
+				g.Expect(existing.Annotations).NotTo(HaveKey(copyengine.SecretAnnotationManagedBy))
 			}, 2*time.Second, 250*time.Millisecond).Should(Succeed())
 		})
 	})

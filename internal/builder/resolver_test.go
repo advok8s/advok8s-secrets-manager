@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 	"github.com/advok8s/advok8s-secrets-manager/pkg/selectors"
 )
 
@@ -329,7 +329,7 @@ func TestFingerprint(t *testing.T) {
 func TestFingerprintUsesRevisionAnnotation(t *testing.T) {
 	mk := func(data map[string]string) *ResolvedInputs {
 		s := secret("db-credentials", nil, data)
-		s.Annotations = map[string]string{RevisionAnnotation: "rev-1"}
+		s.Annotations = map[string]string{SecretRevisionAnnotation: "rev-1"}
 		r := newResolver(t, nil, s)
 		sb := builderFor(secretsv1beta1.SecretBuilderSpec{
 			Inputs: secretsv1beta1.SecretBuilderInputs{

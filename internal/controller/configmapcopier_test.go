@@ -28,7 +28,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	configmapsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/configmaps/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 	"github.com/advok8s/advok8s-secrets-manager/internal/copyengine"
 )
 
@@ -59,17 +60,17 @@ func createConfigMap(namespace, name string, data map[string]string, binaryData 
 
 // configMapCopyRule builds a ConfigMapCopierRule selecting target namespaces by
 // exact name.
-func configMapCopyRule(sourceNamespace, sourceName, targetName string, reclaim secretsv1beta1.ReclaimPolicy, targetNamespaces ...string) secretsv1beta1.ConfigMapCopierRule {
+func configMapCopyRule(sourceNamespace, sourceName, targetName string, reclaim configmapsv1beta1.ReclaimPolicy, targetNamespaces ...string) configmapsv1beta1.ConfigMapCopierRule {
 	if reclaim == "" {
-		reclaim = secretsv1beta1.ReclaimDelete
+		reclaim = configmapsv1beta1.ReclaimDelete
 	}
-	return secretsv1beta1.ConfigMapCopierRule{
-		SourceConfigMap: secretsv1beta1.SourceConfigMap{
+	return configmapsv1beta1.ConfigMapCopierRule{
+		SourceConfigMap: configmapsv1beta1.SourceConfigMap{
 			Namespace: sourceNamespace,
 			Name:      sourceName,
 		},
 		TargetNamespaces: nameTargetNamespaces(targetNamespaces...),
-		TargetConfigMap: secretsv1beta1.TargetConfigMap{
+		TargetConfigMap: configmapsv1beta1.TargetConfigMap{
 			Name: targetName,
 		},
 		ReclaimPolicy: reclaim,
@@ -78,12 +79,12 @@ func configMapCopyRule(sourceNamespace, sourceName, targetName string, reclaim s
 
 // createConfigMapCopier creates a ConfigMapCopier with the given rules and
 // waits until it can be read back.
-func createConfigMapCopier(name string, rules ...secretsv1beta1.ConfigMapCopierRule) *secretsv1beta1.ConfigMapCopier {
+func createConfigMapCopier(name string, rules ...configmapsv1beta1.ConfigMapCopierRule) *configmapsv1beta1.ConfigMapCopier {
 	GinkgoHelper()
 
-	copier := &secretsv1beta1.ConfigMapCopier{
+	copier := &configmapsv1beta1.ConfigMapCopier{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
-		Spec:       secretsv1beta1.ConfigMapCopierSpec{Rules: rules},
+		Spec:       configmapsv1beta1.ConfigMapCopierSpec{Rules: rules},
 	}
 	Expect(k8sClient.Create(ctx, copier)).To(Succeed())
 
@@ -126,8 +127,8 @@ var _ = Describe("ConfigMapCopier", func() {
 			Expect(target.Data).To(HaveKeyWithValue("settings", "value"))
 			Expect(target.BinaryData).To(HaveKeyWithValue("logo", []byte{0xff, 0x00, 0x01}))
 			Expect(target.Labels).To(HaveKeyWithValue("app", "demo"))
-			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedBy, "configmapcopier/cmc-copier-1"))
-			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationSourceResource, "cmc-src-1/app-config"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.ConfigMapAnnotationManagedBy, "configmapcopier/cmc-copier-1"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.ConfigMapAnnotationSourceResource, "cmc-src-1/app-config"))
 
 			// Delete reclaim: the copier owns the copy.
 			Expect(target.OwnerReferences).To(HaveLen(1))
@@ -177,7 +178,7 @@ var _ = Describe("ConfigMapCopier", func() {
 			target := eventuallyGetConfigMap("cmc-tgt-3", "renamed-config")
 			Expect(target.Labels).To(HaveKeyWithValue("app", "demo"))
 			Expect(target.Labels).To(HaveKeyWithValue("copied", "true"))
-			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedLabels, "app,copied"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.ConfigMapAnnotationManagedLabels, "app,copied"))
 		})
 	})
 
@@ -193,12 +194,12 @@ var _ = Describe("ConfigMapCopier", func() {
 
 			target := eventuallyGetConfigMap("cmc-tgt-annot", "app-config")
 			Expect(target.Annotations).To(HaveKeyWithValue("example.com/origin", "platform"))
-			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedAnnotations, "example.com/origin,example.com/tier"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.ConfigMapAnnotationManagedAnnotations, "example.com/origin,example.com/tier"))
 
 			// Editing the rule reconciles the managed subset on the copy.
 			// (Re-fetch and retry: the controller's status writes race this update.)
 			Eventually(func(g Gomega) {
-				fresh := &secretsv1beta1.ConfigMapCopier{}
+				fresh := &configmapsv1beta1.ConfigMapCopier{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(copier), fresh)).To(Succeed())
 				fresh.Spec.Rules[0].TargetConfigMap.Annotations = map[string]string{"example.com/origin": "updated"}
 				g.Expect(k8sClient.Update(ctx, fresh)).To(Succeed())
@@ -214,14 +215,14 @@ var _ = Describe("ConfigMapCopier", func() {
 
 		It("rejects annotation keys under the operator-owned prefix at admission", func() {
 			rule := configMapCopyRule("cmc-src-annot", "app-config", "", "", "cmc-tgt-annot")
-			rule.TargetConfigMap.Annotations = map[string]string{"secrets.advok8s.io/copier-rule": "spoof"}
-			copier := &secretsv1beta1.ConfigMapCopier{
+			rule.TargetConfigMap.Annotations = map[string]string{"configmaps.advok8s.io/copier-rule": "spoof"}
+			copier := &configmapsv1beta1.ConfigMapCopier{
 				ObjectMeta: metav1.ObjectMeta{Name: "cmc-annot-reserved"},
-				Spec:       secretsv1beta1.ConfigMapCopierSpec{Rules: []secretsv1beta1.ConfigMapCopierRule{rule}},
+				Spec:       configmapsv1beta1.ConfigMapCopierSpec{Rules: []configmapsv1beta1.ConfigMapCopierRule{rule}},
 			}
 			err := k8sClient.Create(ctx, copier)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("secrets.advok8s.io/ prefix"))
+			Expect(err.Error()).To(ContainSubstring("configmaps.advok8s.io/ prefix"))
 		})
 	})
 
@@ -232,7 +233,7 @@ var _ = Describe("ConfigMapCopier", func() {
 			createConfigMap("cmc-src-4", "app-config", sourceData, nil, nil)
 
 			createConfigMapCopier("cmc-copier-4",
-				configMapCopyRule("cmc-src-4", "app-config", "", secretsv1beta1.ReclaimRetain, "cmc-tgt-4"))
+				configMapCopyRule("cmc-src-4", "app-config", "", configmapsv1beta1.ReclaimRetain, "cmc-tgt-4"))
 
 			target := eventuallyGetConfigMap("cmc-tgt-4", "app-config")
 			Expect(target.OwnerReferences).To(BeEmpty())
@@ -250,7 +251,7 @@ var _ = Describe("ConfigMapCopier", func() {
 				configMapCopyRule("cmc-src-5", "app-config", "", "", "cmc-tgt-5"))
 
 			Eventually(func(g Gomega) {
-				copier := &secretsv1beta1.ConfigMapCopier{}
+				copier := &configmapsv1beta1.ConfigMapCopier{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "cmc-copier-5"}, copier)).To(Succeed())
 				g.Expect(copier.Status.Summary.Conflicts).To(Equal(1))
 				// A conflict is a misconfiguration signal, not a failure.
@@ -261,7 +262,7 @@ var _ = Describe("ConfigMapCopier", func() {
 				existing := &corev1.ConfigMap{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: "cmc-tgt-5", Name: "app-config"}, existing)).To(Succeed())
 				g.Expect(existing.Data).To(HaveKeyWithValue("theirs", "data"))
-				g.Expect(existing.Annotations).NotTo(HaveKey(copyengine.AnnotationManagedBy))
+				g.Expect(existing.Annotations).NotTo(HaveKey(copyengine.ConfigMapAnnotationManagedBy))
 			}, 2*time.Second, 250*time.Millisecond).Should(Succeed())
 
 			// Conflict clearance is event-driven: deleting the foreign configmap
@@ -334,7 +335,7 @@ var _ = Describe("ConfigMapCopier", func() {
 				configMapCopyRule("cmc-src-8", "app-config", "", "", "cmc-tgt-8"))
 
 			Eventually(func(g Gomega) {
-				copier := &secretsv1beta1.ConfigMapCopier{}
+				copier := &configmapsv1beta1.ConfigMapCopier{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "cmc-copier-8"}, copier)).To(Succeed())
 				g.Expect(copier.Status.ObservedGeneration).To(Equal(copier.Generation))
 				g.Expect(copier.Status.Summary.TargetNamespaces).To(Equal(1))
@@ -357,7 +358,7 @@ var _ = Describe("ConfigMapCopier", func() {
 				configMapCopyRule("cmc-src-9-missing", "app-config", "", "", "cmc-tgt-9"))
 
 			Eventually(func(g Gomega) {
-				copier := &secretsv1beta1.ConfigMapCopier{}
+				copier := &configmapsv1beta1.ConfigMapCopier{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "cmc-copier-9"}, copier)).To(Succeed())
 				g.Expect(copier.Status.Rules).To(HaveLen(1))
 				g.Expect(copier.Status.Rules[0].SourceExists).To(BeFalse())

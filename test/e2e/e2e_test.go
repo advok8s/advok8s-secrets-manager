@@ -486,7 +486,7 @@ metadata: {name: e2e-settings, namespace: e2e-cmcopy-src}
 data: {environment: production}
 binaryData: {marker: /wAB}
 ---
-apiVersion: secrets.advok8s.io/v1beta1
+apiVersion: configmaps.advok8s.io/v1beta1
 kind: ConfigMapCopier
 metadata: {name: e2e-cm-copier}
 spec:
@@ -539,7 +539,7 @@ metadata: {name: e2e-db-creds, namespace: e2e-cmbuild}
 type: Opaque
 stringData: {username: app-reader, password: never-published}
 ---
-apiVersion: secrets.advok8s.io/v1beta1
+apiVersion: configmaps.advok8s.io/v1beta1
 kind: ConfigMapBuilder
 metadata: {name: e2e-db-info, namespace: e2e-cmbuild}
 spec:

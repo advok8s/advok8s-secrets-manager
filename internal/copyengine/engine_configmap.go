@@ -57,7 +57,7 @@ type ConfigMapRequest struct {
 	// the CRD schema.
 	TargetAnnotations map[string]string
 
-	// ManagedByValue is stamped under AnnotationManagedBy and used for conflict
+	// ManagedByValue is stamped under ConfigMapAnnotationManagedBy and used for conflict
 	// detection: an existing target is only updated when its annotation matches
 	// this value (and the source annotation matches the source identity).
 	ManagedByValue string
@@ -109,10 +109,10 @@ func (e *Engine) CopyConfigMap(ctx context.Context, req ConfigMapRequest) Outcom
 		log.V(1).Info("Creating target configmap", "targetConfigMap", req.TargetName, "targetNamespace", req.TargetNamespace)
 
 		annotations := overlayLabels(req.TargetAnnotations, map[string]string{
-			AnnotationManagedBy:          req.ManagedByValue,
-			AnnotationSourceResource:     sourceRef,
-			AnnotationManagedLabels:      encodeManagedKeys(expectedLabels),
-			AnnotationManagedAnnotations: encodeManagedKeys(req.TargetAnnotations),
+			ConfigMapAnnotationManagedBy:          req.ManagedByValue,
+			ConfigMapAnnotationSourceResource:     sourceRef,
+			ConfigMapAnnotationManagedLabels:      encodeManagedKeys(expectedLabels),
+			ConfigMapAnnotationManagedAnnotations: encodeManagedKeys(req.TargetAnnotations),
 		})
 
 		targetConfigMap = corev1.ConfigMap{
@@ -141,7 +141,7 @@ func (e *Engine) CopyConfigMap(ctx context.Context, req ConfigMapRequest) Outcom
 	// from this source; otherwise a foreign configmap owns the target name and
 	// we leave it untouched, reporting a conflict.
 
-	if !TargetManagedBy(&targetConfigMap, req.ManagedByValue, sourceRef) {
+	if !TargetManagedBy(configMapAnnotationKeys, &targetConfigMap, req.ManagedByValue, sourceRef) {
 		log.V(1).Info("Skipping update of target configmap as not managed by this rule", "targetConfigMap", req.TargetName, "targetNamespace", req.TargetNamespace)
 		return Conflict
 	}
@@ -154,10 +154,10 @@ func (e *Engine) CopyConfigMap(ctx context.Context, req ConfigMapRequest) Outcom
 	if ConfigMapSourceChanged(req.Source, &targetConfigMap, req.TargetLabels, req.TargetAnnotations) {
 		log.V(1).Info("Updating target configmap", "targetConfigMap", req.TargetName, "targetNamespace", req.TargetNamespace)
 
-		targetConfigMap.Labels = applyManagedLabels(&targetConfigMap, expectedLabels)
-		targetConfigMap.Annotations = applyManagedAnnotations(&targetConfigMap, req.TargetAnnotations)
-		targetConfigMap.Annotations[AnnotationManagedLabels] = encodeManagedKeys(expectedLabels)
-		targetConfigMap.Annotations[AnnotationManagedAnnotations] = encodeManagedKeys(req.TargetAnnotations)
+		targetConfigMap.Labels = applyManagedLabels(configMapAnnotationKeys, &targetConfigMap, expectedLabels)
+		targetConfigMap.Annotations = applyManagedAnnotations(configMapAnnotationKeys, &targetConfigMap, req.TargetAnnotations)
+		targetConfigMap.Annotations[ConfigMapAnnotationManagedLabels] = encodeManagedKeys(expectedLabels)
+		targetConfigMap.Annotations[ConfigMapAnnotationManagedAnnotations] = encodeManagedKeys(req.TargetAnnotations)
 		targetConfigMap.Data = req.Source.Data
 		targetConfigMap.BinaryData = req.Source.BinaryData
 
@@ -187,9 +187,9 @@ func ConfigMapSourceChanged(source, target *corev1.ConfigMap, extraLabels, extra
 		return true
 	}
 
-	if labelsDrift(target, overlayLabels(source.Labels, extraLabels)) {
+	if labelsDrift(configMapAnnotationKeys, target, overlayLabels(source.Labels, extraLabels)) {
 		return true
 	}
 
-	return annotationsDrift(target, extraAnnotations)
+	return annotationsDrift(configMapAnnotationKeys, target, extraAnnotations)
 }

@@ -74,20 +74,19 @@ type Result struct {
 	Type        string
 }
 
-// reservedAnnotationPrefix marks the annotation namespace the operator owns on
-// its output objects (the revision stamp lives there). Generator output may not
-// set keys under it - rejected with an error rather than silently overwritten,
-// so an author who tries learns immediately why it did not stick.
-const reservedAnnotationPrefix = "secrets.advok8s.io/"
+// The operator-owned annotation prefixes (secret/configMap) and the keys under
+// them live in annotations.go; OutputKind.reservedPrefix() returns the prefix
+// reserved for a given output kind.
 
 // validateAnnotations rejects generator-produced annotation keys in the
 // operator-owned namespace. Shared by both engines so the error is identical
 // whichever generator produced the output; kind is the output dict/field name
-// for the message ("secret" or "configMap").
-func validateAnnotations(annotations map[string]string, kind string) error {
+// for the message ("secret" or "configMap") and prefix is the reserved
+// namespace for the output kind.
+func validateAnnotations(annotations map[string]string, kind, prefix string) error {
 	for _, key := range sortedKeys(annotations) {
-		if strings.HasPrefix(key, reservedAnnotationPrefix) {
-			return fmt.Errorf("%s.annotations[%q]: the %q annotation prefix is reserved for the operator", kind, key, reservedAnnotationPrefix)
+		if strings.HasPrefix(key, prefix) {
+			return fmt.Errorf("%s.annotations[%q]: the %q annotation prefix is reserved for the operator", kind, key, prefix)
 		}
 	}
 	return nil

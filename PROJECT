@@ -6,25 +6,17 @@ cliVersion: 4.14.0
 domain: advok8s.io
 layout:
 - go.kubebuilder.io/v4
+multigroup: true
 projectName: advok8s-secrets-manager
 repo: github.com/advok8s/advok8s-secrets-manager
 resources:
 - api:
     crdVersion: v1
-    namespaced: true
   controller: true
   domain: advok8s.io
   group: secrets
   kind: SecretCopier
-  path: github.com/advok8s/advok8s-secrets-manager/api/v1beta1
-  version: v1beta1
-- api:
-    crdVersion: v1
-  controller: true
-  domain: advok8s.io
-  group: secrets
-  kind: ConfigMapCopier
-  path: github.com/advok8s/advok8s-secrets-manager/api/v1beta1
+  path: github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1
   version: v1beta1
 - api:
     crdVersion: v1
@@ -32,7 +24,50 @@ resources:
   controller: true
   domain: advok8s.io
   group: secrets
+  kind: SecretExporter
+  path: github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1
+  version: v1beta1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: advok8s.io
+  group: secrets
+  kind: SecretImporter
+  path: github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1
+  version: v1beta1
+- api:
+    crdVersion: v1
+  controller: true
+  domain: advok8s.io
+  group: secrets
+  kind: SecretInjector
+  path: github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1
+  version: v1beta1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: advok8s.io
+  group: secrets
+  kind: SecretBuilder
+  path: github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1
+  version: v1beta1
+- api:
+    crdVersion: v1
+  controller: true
+  domain: advok8s.io
+  group: configmaps
+  kind: ConfigMapCopier
+  path: github.com/advok8s/advok8s-secrets-manager/api/configmaps/v1beta1
+  version: v1beta1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: advok8s.io
+  group: configmaps
   kind: ConfigMapBuilder
-  path: github.com/advok8s/advok8s-secrets-manager/api/v1beta1
+  path: github.com/advok8s/advok8s-secrets-manager/api/configmaps/v1beta1
   version: v1beta1
 version: "3"

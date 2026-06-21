@@ -23,7 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/v1beta1"
+	secretsv1beta1 "github.com/advok8s/advok8s-secrets-manager/api/secrets/v1beta1"
 	"github.com/advok8s/advok8s-secrets-manager/internal/copyengine"
 )
 
@@ -52,8 +52,8 @@ var _ = Describe("SecretCopier shaping the target secret", func() {
 			// Source labels overlaid with rule labels (rule wins on "env").
 			Expect(target.Labels).To(Equal(map[string]string{"env": "override", "managed-by": "advok8s"}))
 			// Tracking annotations.
-			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedBy, "secretcopier/shape-copier"))
-			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationSourceResource, "shape-src/original-name"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.SecretAnnotationManagedBy, "secretcopier/shape-copier"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.SecretAnnotationSourceResource, "shape-src/original-name"))
 
 			// The source secret itself is left untouched.
 			source := eventuallyGetSecret("shape-src", "original-name")
@@ -81,7 +81,7 @@ var _ = Describe("SecretCopier shaping the target secret", func() {
 			target := eventuallyGetSecret("annot-tgt", defaultTargetSecretName)
 			Expect(target.Annotations).To(HaveKeyWithValue("example.com/team", "a"))
 			Expect(target.Annotations).To(HaveKeyWithValue("example.com/tier", "1"))
-			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedAnnotations, "example.com/team,example.com/tier"))
+			Expect(target.Annotations).To(HaveKeyWithValue(copyengine.SecretAnnotationManagedAnnotations, "example.com/team,example.com/tier"))
 
 			// Editing the rule reconciles the managed subset: the dropped key is
 			// removed, the changed key updated, tracking annotations intact.
@@ -101,7 +101,7 @@ var _ = Describe("SecretCopier shaping the target secret", func() {
 				}, updated)).To(Succeed())
 				g.Expect(updated.Annotations).To(HaveKeyWithValue("example.com/team", "b"))
 				g.Expect(updated.Annotations).ToNot(HaveKey("example.com/tier"))
-				g.Expect(updated.Annotations).To(HaveKeyWithValue(copyengine.AnnotationManagedBy, "secretcopier/annot-copier"))
+				g.Expect(updated.Annotations).To(HaveKeyWithValue(copyengine.SecretAnnotationManagedBy, "secretcopier/annot-copier"))
 			}, secretCreatedTimeout).Should(Succeed())
 		})
 

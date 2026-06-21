@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: configmapcopiers.secrets.advok8s.io
+  name: configmapcopiers.configmaps.advok8s.io
 spec:
-  group: secrets.advok8s.io
+  group: configmaps.advok8s.io
   names:
     kind: ConfigMapCopier
     listKind: ConfigMapCopierList
@@ -100,14 +100,14 @@ spec:
                           description: |-
                             Annotations to apply to the configmap. Reconciled as a managed subset,
                             like labels: annotations outside this set are never compared or touched.
-                            Keys under the operator-owned secrets.advok8s.io/ prefix are rejected
+                            Keys under the operator-owned configmaps.advok8s.io/ prefix are rejected
                             (the tracking annotations live there).
                           maxProperties: 32
                           type: object
                           x-kubernetes-validations:
-                          - message: annotation keys under the operator-owned secrets.advok8s.io/
+                          - message: annotation keys under the operator-owned configmaps.advok8s.io/
                               prefix are not allowed
-                            rule: self.all(k, !k.startsWith('secrets.advok8s.io/'))
+                            rule: self.all(k, !k.startsWith('configmaps.advok8s.io/'))
                         labels:
                           additionalProperties:
                             type: string
